@@ -6,6 +6,13 @@ __pycache__/
 # C extensions
 *.so
 
+.github
+.refact
+
+ecosystem.md
+plan.md
+source.md
+
 # Distribution / packaging
 .Python
 build/
@@ -216,3 +223,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+
+#Ignore vscode AI rules
+.github\instructions\codacy.instructions.md
