@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "doppy"
+version = "0.1.0"
+description = "Minimal dependency injection container"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "doppy maintainers" }]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy>=1.16,<2",
+    "nox>=2025.5.1",
+    "pre-commit>=4.2",
+    "pytest>=8.4",
+    "pytest-cov>=6.2",
+    "ruff>=0.12",
+    "uv>=0.11",
+]
+
+[tool.hatch.build]
+include = [
+    "container.py",
+    "devkit/**/*.py",
+]
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["A", "B", "C4", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]
+ignore = ["UP006", "UP007", "UP035", "UP037", "UP045"]
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_unreachable = true
+files = ["container.py", "devkit"]
+
+[tool.pytest.ini_options]
+addopts = "--cov=container --cov=devkit --cov-report=term-missing"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["container", "devkit"]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+version = "0.1.0"
+tag_format = "v$version"
+update_changelog_on_bump = true
+major_version_zero = true

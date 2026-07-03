@@ -1,0 +1,13 @@
+services:
+  test:
+    build: .
+    working_dir: /app
+    tty: true
+    stdin_open: true
+    volumes:
+      - .:/app
+    environment:
+      PYTHONPATH: /app
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    command: bash -lc "uv run pytest"
