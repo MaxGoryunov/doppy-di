@@ -33,6 +33,17 @@ jobs:
       - name: Mypy strict
         run: uv run mypy
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install Node deps
+        run: npm ci
+
+      - name: Commitlint
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha || 'HEAD~1' }} --to ${{ github.event.pull_request.head.sha || 'HEAD' }}
+
   test:
     runs-on: ubuntu-latest
     strategy:

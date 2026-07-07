@@ -13,9 +13,11 @@ plan.md
 source.md
 *.lock
 
-*.cjs
-package.json
-.*.json
+.clinerules
+
+!commitlint.config.cjs
+!package.json
+!.releaserc.json
 
 # Distribution / packaging
 .Python

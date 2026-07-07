@@ -8,6 +8,8 @@ import nox
 
 nox.options.sessions = ["lint", "typecheck", "tests"]
 
+PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12"]
+
 
 def uv(session: nox.Session, *args: str) -> None:
     """Run uv through the active Python executable."""
@@ -27,7 +29,7 @@ def typecheck(session: nox.Session) -> None:
     uv(session, "run", "mypy")
 
 
-@nox.session(python=False)
+@nox.session(python=PYTHON_VERSIONS)
 def tests(session: nox.Session) -> None:
-    """Run tests in the current uv environment."""
+    """Run tests across multiple Python versions."""
     uv(session, "run", "pytest")

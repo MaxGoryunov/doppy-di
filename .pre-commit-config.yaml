@@ -16,3 +16,9 @@ repos:
     rev: v4.8.3
     hooks:
       - id: commitizen
+  - repo: https://github.com/conventional-commits/commitlint-pre-commit-hook
+    rev: v1.0.0
+    hooks:
+      - id: commitlint
+        stages: [commit-msg]
+        additional_dependencies: ["@commitlint/config-conventional"]
