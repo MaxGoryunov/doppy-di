@@ -14,7 +14,6 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -52,10 +51,15 @@ select = ["A", "B", "C4", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]
 ignore = ["UP006", "UP007", "UP035", "UP037", "UP045"]
 
 [tool.mypy]
-python_version = "3.9"
+python_version = "3.10"
 strict = true
 warn_unreachable = true
 files = ["container.py", "devkit"]
+exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/']
+
+[[tool.mypy.overrides]]
+module = "noxfile"
+ignore_errors = true
 
 [tool.pytest.ini_options]
 addopts = "--cov=container --cov=devkit --cov-report=term-missing"

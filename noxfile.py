@@ -8,7 +8,7 @@ import nox
 
 nox.options.sessions = ["lint", "typecheck", "tests"]
 
-PYTHON_VERSIONS = ["3.9", "3.10", "3.11", "3.12"]
+PYTHON_VERSIONS = ["3.10", "3.11", "3.12"]
 
 
 def uv(session: nox.Session, *args: str) -> None:
