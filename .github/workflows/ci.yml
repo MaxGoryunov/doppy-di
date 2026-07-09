@@ -39,7 +39,7 @@ jobs:
           node-version: "22"
 
       - name: Install Node deps
-        run: npm ci
+        run: npm install
 
       - name: Commitlint
         run: npx commitlint --from ${{ github.event.pull_request.base.sha || 'HEAD~1' }} --to ${{ github.event.pull_request.head.sha || 'HEAD' }}
