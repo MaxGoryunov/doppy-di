@@ -12,6 +12,7 @@ ecosystem.md
 plan.md
 source.md
 *.lock
+!uv.lock
 
 .clinerules
 
