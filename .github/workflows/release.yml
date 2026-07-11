@@ -38,23 +38,25 @@ jobs:
 
       - name: Install uv
         uses: astral-sh/setup-uv@v8
+        with:
+          enable-cache: true
 
       - name: Install Python
         run: uv python install 3.12
 
       - name: Install Node dependencies
-        run: npm ci
+        run: npm install
 
       - name: Install Python dependencies
         run: uv sync --frozen --extra dev
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run semantic-release -- --first-release
 
       - name: Build package
         run: uv build
 
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always
-
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm run semantic-release

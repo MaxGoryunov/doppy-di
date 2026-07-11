@@ -1,7 +1,6 @@
 {
   "name": "doppy",
-  "version": "0.1.0",
-  "private": true,
+  "private": false,
   "scripts": {
     "commitlint": "commitlint --from HEAD~1 --to HEAD",
     "semantic-release": "semantic-release"
