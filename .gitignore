@@ -8,6 +8,8 @@ __pycache__/
 
 .refact
 
+node_modules
+
 ecosystem.md
 plan.md
 source.md
