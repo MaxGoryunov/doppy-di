@@ -3,7 +3,7 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "doppy"
+name = "doppy-di"
 version = "0.1.0"
 description = "Minimal dependency injection container"
 readme = "README.md"
