@@ -307,6 +307,20 @@ class Container:
     def has(self, key: Key) -> bool:
         return self.config.ruleset.has(key)
 
+    def get_or_none(self, key: Key) -> Any:
+        """Return resolved service or ``None`` if key not registered.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> c = builder.build()
+            >>> c.get_or_none("missing") is None
+            True
+        """
+        try:
+            return self.get(key)
+        except ServiceNotFoundError:
+            return None
+
     def scope(self, name: str) -> Scope:
         if name in self.scopes:
             return self.scopes[name]
@@ -370,7 +384,12 @@ class ContainerBuilder:
     def alias(self, key: Key, target: Key) -> None:
         self.rules.add(
             key,
-            Rule(key=key, make=lambda: None, lifetime="transient", deps=(target,)),
+            Rule(
+                key=key,
+                make=lambda: None,
+                lifetime="transient",
+                deps=(target,),
+            ),
         )
 
     def build(self) -> Container:

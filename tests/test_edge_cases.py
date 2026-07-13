@@ -30,6 +30,21 @@ def test_ruleset_find_missing_raises_error() -> None:
         rules.find("missing")
 
 
+def test_get_or_none_missing_returns_none() -> None:
+    builder = ContainerBuilder()
+    container = builder.build()
+
+    assert container.get_or_none("nonexistent") is None
+
+
+def test_get_or_none_registered_returns_value() -> None:
+    builder = ContainerBuilder()
+    builder.value("x", 42)
+    container = builder.build()
+
+    assert container.get_or_none("x") == 42
+
+
 # ── H2: Double-register silence ────────────────────────────────────────
 
 
