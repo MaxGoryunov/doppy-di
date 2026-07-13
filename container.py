@@ -30,6 +30,18 @@ Key = Union[str, type, KeyProtocol]
 Lifetime = str
 
 
+class ServiceNotFoundError(KeyError):
+    """Raised when a service key is not registered.
+
+    Example:
+        >>> raise ServiceNotFoundError("missing")
+    """
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Service not found: {key!r}")
+
+
 class CycleError(Exception):
     """Raised when the rule graph contains a dependency cycle.
 
@@ -106,7 +118,10 @@ class RuleSet:
 
     def find(self, key: Key) -> Rule:
         """Return a rule by key."""
-        return self.map[key]
+        try:
+            return self.map[key]
+        except KeyError:
+            raise ServiceNotFoundError(key) from None
 
     def has(self, key: Key) -> bool:
         """Check whether a key is registered."""
@@ -267,7 +282,10 @@ class Container:
         if key in self.single:
             return self.single[key]
 
-        rule = self.config.ruleset.find(key)
+        try:
+            rule = self.config.ruleset.find(key)
+        except ServiceNotFoundError:
+            raise
         ctx = ResolveContext(self)
         args = [ctx.get(dep) for dep in rule.deps]
         obj = rule.make(*args)
@@ -288,6 +306,20 @@ class Container:
 
     def has(self, key: Key) -> bool:
         return self.config.ruleset.has(key)
+
+    def get_or_none(self, key: Key) -> Any:
+        """Return resolved service or ``None`` if key not registered.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> c = builder.build()
+            >>> c.get_or_none("missing") is None
+            True
+        """
+        try:
+            return self.get(key)
+        except ServiceNotFoundError:
+            return None
 
     def scope(self, name: str) -> Scope:
         if name in self.scopes:
@@ -352,7 +384,12 @@ class ContainerBuilder:
     def alias(self, key: Key, target: Key) -> None:
         self.rules.add(
             key,
-            Rule(key=key, make=lambda: None, lifetime="transient", deps=(target,)),
+            Rule(
+                key=key,
+                make=lambda: None,
+                lifetime="transient",
+                deps=(target,),
+            ),
         )
 
     def build(self) -> Container:
