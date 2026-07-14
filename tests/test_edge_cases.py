@@ -66,6 +66,44 @@ def test_duplicate_key_ruleset_overwrites() -> None:
     assert rules.find("k").make() == 2
 
 
+def test_duplicate_key_fail_raises() -> None:
+    from container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
+
+    builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
+    builder.value("x", 1)
+    with pytest.raises(DuplicateKeyError):
+        builder.value("x", 2)
+
+
+def test_duplicate_key_warn_overwrites() -> None:
+    from container import ContainerBuilder, DuplicateKeyPolicy
+
+    builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.WARN)
+    builder.value("x", 1)
+    builder.value("x", 2)  # should warn then overwrite
+
+    container = builder.build()
+    assert container.get("x") == 2
+
+
+def test_duplicate_key_service_fail_raises() -> None:
+    from container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
+
+    builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
+    builder.service("x", lambda: 1)
+    with pytest.raises(DuplicateKeyError):
+        builder.service("x", lambda: 2)
+
+
+def test_duplicate_key_alias_fail_raises() -> None:
+    from container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
+
+    builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
+    builder.value("x", 1)
+    with pytest.raises(DuplicateKeyError):
+        builder.alias("x", "x")
+
+
 # ── H3: Stale scope on name reuse ──────────────────────────────────────
 
 
