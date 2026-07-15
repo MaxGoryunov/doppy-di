@@ -225,6 +225,20 @@ class ResolveContext:
 class OverrideContext:
     """Context manager for temporary overrides.
 
+    The override writes ``value`` into the container's singleton cache for
+    ``key`` for the duration of the ``with`` block. On exit the previous
+    state is restored via the ``had_old`` flag:
+
+    * If ``key`` was already in the singleton cache before the override, the
+      old value is restored (``had_old is True``).
+    * If ``key`` was NOT yet resolved (absent from the cache), the entry is
+      removed on exit (``had_old is False``). The factory then runs fresh on
+      the next ``get``, producing a brand-new object rather than the one that
+      was active during the override.
+
+    This contract guarantees that overriding an unresolved singleton never
+    silently mutates the eventual resolved singleton.
+
     Example:
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
@@ -276,12 +290,13 @@ class Scope:
         True
     """
 
-    __slots__ = ("cache", "container", "name")
+    __slots__ = ("_depth", "cache", "container", "name")
 
     def __init__(self, container: Container, name: str) -> None:
         self.container = container
         self.name = name
         self.cache: Dict[Key, Any] = {}
+        self._depth = 0
 
     def get(self, key: Key) -> Any:
         if key in self.cache:
@@ -291,6 +306,7 @@ class Scope:
         return obj
 
     def __enter__(self) -> Scope:
+        self._depth += 1
         return self
 
     def __exit__(
@@ -299,7 +315,9 @@ class Scope:
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
-        self.cache.clear()
+        self._depth -= 1
+        if self._depth == 0:
+            self.cache.clear()
 
 
 class Container:
