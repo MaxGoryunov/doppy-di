@@ -13,9 +13,13 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from enum import Enum
 from types import TracebackType
 from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Type, Union
+
+logger = logging.getLogger("doppy_di.container")
 
 
 class KeyProtocol(Protocol):
@@ -66,6 +70,31 @@ class NestedRuleError(Exception):
         self.child = child
         self.reason = reason
         super().__init__(f"Nested rule error: {parent!r}.{child} - {reason}")
+
+
+class DuplicateKeyError(KeyError):
+    """Raised when a duplicate key is registered under the FAIL policy.
+
+    Example:
+        >>> raise DuplicateKeyError("x")
+    """
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Duplicate key: {key!r}")
+
+
+class DuplicateKeyPolicy(Enum):
+    """Strategy for handling duplicate key registration.
+
+    OVERWRITE: replace existing rule (current default behavior).
+    FAIL: raise DuplicateKeyError on duplicate.
+    WARN: log a warning and overwrite.
+    """
+
+    OVERWRITE = "overwrite"
+    FAIL = "fail"
+    WARN = "warn"
 
 
 @dataclass(frozen=True)
@@ -357,10 +386,23 @@ class ContainerBuilder:
         1
     """
 
-    __slots__ = ("rules",)
+    __slots__ = ("duplicate_policy", "rules")
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
+    ) -> None:
         self.rules = RuleSet()
+        self.duplicate_policy = duplicate_policy
+
+    def _register(self, key: Key, rule: Rule) -> None:
+        """Add rule honoring the active duplicate policy."""
+        if key in self.rules.map and self.duplicate_policy != DuplicateKeyPolicy.OVERWRITE:
+            if self.duplicate_policy == DuplicateKeyPolicy.FAIL:
+                raise DuplicateKeyError(key)
+            # WARN
+            logger.warning("Duplicate key %r registered; overwriting", key)
+        self.rules.add(key, rule)
 
     def service(
         self,
@@ -370,19 +412,19 @@ class ContainerBuilder:
         deps: Optional[List[Key]] = None,
     ) -> None:
         rule = Rule(key=key, make=make, lifetime=lifetime, deps=tuple(deps or ()))
-        self.rules.add(key, rule)
+        self._register(key, rule)
 
     def value(self, key: Key, value: Any) -> None:
         def make_value() -> Any:
             return value
 
-        self.rules.add(
+        self._register(
             key,
             Rule(key=key, make=make_value, lifetime="singleton", deps=()),
         )
 
     def alias(self, key: Key, target: Key) -> None:
-        self.rules.add(
+        self._register(
             key,
             Rule(
                 key=key,
