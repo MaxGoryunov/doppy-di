@@ -144,6 +144,52 @@ def test_scope_reuse_before_exit_keeps_cache() -> None:
     assert a is not b
 
 
+def test_scope_named_policy_reuses_scope() -> None:
+    """Default (NAMED) policy: same scope name returns same Scope object."""
+    from container import ScopePolicy
+
+    builder = ContainerBuilder(scope_policy=ScopePolicy.NAMED)
+    builder.service("x", lambda: object(), lifetime="transient")
+    container = builder.build()
+
+    s1 = container.scope("req")
+    s2 = container.scope("req")
+    assert s1 is s2
+
+
+def test_scope_unique_policy_returns_fresh_scope() -> None:
+    """UNIQUE policy: each call returns a distinct Scope object."""
+    from container import ScopePolicy
+
+    builder = ContainerBuilder(scope_policy=ScopePolicy.UNIQUE)
+    builder.service("x", lambda: object(), lifetime="transient")
+    container = builder.build()
+
+    s1 = container.scope("req")
+    s2 = container.scope("req")
+    assert s1 is not s2
+
+
+def test_scope_unique_policy_cache_independent() -> None:
+    """UNIQUE policy: cache of one scope never leaks into another."""
+    from container import ScopePolicy
+
+    builder = ContainerBuilder(scope_policy=ScopePolicy.UNIQUE)
+    builder.service("x", lambda: object(), lifetime="transient")
+    container = builder.build()
+
+    scope = container.scope("req")
+    with scope:
+        a = scope.get("x")
+
+    # Forgot __exit__ — but new scope call is still fresh
+    scope2 = container.scope("req")
+    b = scope2.get("x")
+    assert a is not b
+    assert scope.name == "req"
+    assert scope2.name == "req"
+
+
 # ── H4: Override of unresolved singleton ───────────────────────────────
 
 

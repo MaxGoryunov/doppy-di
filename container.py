@@ -14,6 +14,7 @@ Example:
 from __future__ import annotations
 
 import logging
+import uuid
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
@@ -95,6 +96,18 @@ class DuplicateKeyPolicy(Enum):
     OVERWRITE = "overwrite"
     FAIL = "fail"
     WARN = "warn"
+
+
+class ScopePolicy(Enum):
+    """Strategy for resolving scopes by name.
+
+    NAMED: reuse the same Scope object for the same name (current default).
+    UNIQUE: return a fresh Scope per call, stored under a unique internal key
+            so its cache never leaks across calls even if __exit__ is forgotten.
+    """
+
+    NAMED = "named"
+    UNIQUE = "unique"
 
 
 @dataclass(frozen=True)
@@ -300,12 +313,13 @@ class Container:
         42
     """
 
-    __slots__ = ("config", "scopes", "single")
+    __slots__ = ("config", "scope_policy", "scopes", "single")
 
     def __init__(self, config: ContainerConfig) -> None:
         self.config = config
         self.single: Dict[Key, Any] = {}
         self.scopes: Dict[str, Scope] = {}
+        self.scope_policy: ScopePolicy = config.scope_policy
 
     def get(self, key: Key) -> Any:
         if key in self.single:
@@ -351,10 +365,16 @@ class Container:
             return None
 
     def scope(self, name: str) -> Scope:
-        if name in self.scopes:
-            return self.scopes[name]
+        if self.scope_policy == ScopePolicy.NAMED:
+            if name in self.scopes:
+                return self.scopes[name]
+            scope = Scope(self, name)
+            self.scopes[name] = scope
+            return scope
+        # UNIQUE: fresh Scope per call, stored under unique internal key
+        internal = f"{name}#{uuid.uuid4().hex}"
         scope = Scope(self, name)
-        self.scopes[name] = scope
+        self.scopes[internal] = scope
         return scope
 
     def override(self, key: Key, value: Any) -> OverrideContext:
@@ -373,6 +393,7 @@ class ContainerConfig:
     """
 
     ruleset: RuleSet
+    scope_policy: ScopePolicy = ScopePolicy.NAMED
 
 
 class ContainerBuilder:
@@ -386,14 +407,16 @@ class ContainerBuilder:
         1
     """
 
-    __slots__ = ("duplicate_policy", "rules")
+    __slots__ = ("duplicate_policy", "rules", "scope_policy")
 
     def __init__(
         self,
         duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
+        scope_policy: ScopePolicy = ScopePolicy.NAMED,
     ) -> None:
         self.rules = RuleSet()
         self.duplicate_policy = duplicate_policy
+        self.scope_policy = scope_policy
 
     def _register(self, key: Key, rule: Rule) -> None:
         """Add rule honoring the active duplicate policy."""
@@ -435,4 +458,4 @@ class ContainerBuilder:
         )
 
     def build(self) -> Container:
-        return Container(ContainerConfig(self.rules))
+        return Container(ContainerConfig(self.rules, scope_policy=self.scope_policy))
