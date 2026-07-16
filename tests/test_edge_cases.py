@@ -223,37 +223,21 @@ def test_override_unresolved_singleton_then_get_after_exit() -> None:
 
 def test_unknown_lifetime_not_cached() -> None:
     builder = ContainerBuilder()
-    builder.service("x", lambda: object(), lifetime="per_request")  # nonsense lifetime
-    container = builder.build()
-
-    a = container.get("x")
-    b = container.get("x")
-
-    # If lifetime is unknown, container treats it as transient by default
-    # but the code only caches "singleton" — so a is b possible only if
-    # something else caches it. Hypothesis: a is not b for unknown lifetime
-    # because only "singleton" triggers caching.
-    # Actually container.py line 275 checks rule.lifetime == "singleton",
-    # and _cache_nested_aliases runs always. So object may be cached
-    # via alias path. Let's check with a plain key:
-    assert a is not b
+    with pytest.raises(ValueError, match="Unknown lifetime"):
+        builder.service("x", lambda: object(), lifetime="per_request")
 
 
 def test_unknown_lifetime_not_cached_for_value() -> None:
-    """value() sets lifetime='singleton' explicitly, so this covers
-    the case where user manually creates Rule with bad lifetime string."""
+    """User manually creates Rule with bad lifetime string -> ValueError."""
     from container import Rule, RuleSet
 
     rules = RuleSet()
-    rules.add("x", Rule("x", lambda: object(), lifetime="bad_value"))
-    # Test via ContainerBuilder raw:
-    builder = ContainerBuilder()
-    builder.rules.add("x", Rule("x", lambda: object(), lifetime="weird"))
-    c = builder.build()
+    with pytest.raises(ValueError, match="Unknown lifetime"):
+        rules.add("x", Rule("x", lambda: object(), lifetime="bad_value"))
 
-    a = c.get("x")
-    b = c.get("x")
-    assert a is not b
+    builder = ContainerBuilder()
+    with pytest.raises(ValueError, match="Unknown lifetime"):
+        builder.rules.add("x", Rule("x", lambda: object(), lifetime="weird"))
 
 
 # ── H6: LoggingContainer catches BaseException ─────────────────────────

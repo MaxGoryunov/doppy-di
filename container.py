@@ -18,7 +18,18 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
-from typing import Any, Callable, Dict, List, Optional, Protocol, Tuple, Type, Union
+from typing import (
+    Any,
+    Callable,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Protocol,
+    Tuple,
+    Type,
+    Union,
+)
 
 logger = logging.getLogger("doppy_di.container")
 
@@ -110,6 +121,26 @@ class ScopePolicy(Enum):
     UNIQUE = "unique"
 
 
+class LifetimePolicy:
+    """Validation policy for service lifetimes.
+
+    Centralizes the set of known lifetime identifiers and provides an
+    extension point for registering custom lifetimes.
+
+    Example:
+        >>> LifetimePolicy.validate("singleton")
+        >>> LifetimePolicy.validate("transient")
+        >>> LifetimePolicy.validate("per_request")  # raises ValueError
+    """
+
+    known: ClassVar[set[str]] = {"transient", "singleton"}
+
+    @classmethod
+    def validate(cls, lifetime: str) -> None:
+        if lifetime not in cls.known:
+            raise ValueError(f"Unknown lifetime: {lifetime!r}")
+
+
 @dataclass(frozen=True)
 class Rule:
     """Immutable service rule.
@@ -130,6 +161,9 @@ class Rule:
     make: Callable[..., Any]
     lifetime: Lifetime = "transient"
     deps: Tuple[Key, ...] = ()
+
+    def __post_init__(self) -> None:
+        LifetimePolicy.validate(self.lifetime)
 
 
 class RuleSet:

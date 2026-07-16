@@ -321,7 +321,6 @@ wheels = [
 
 [[package]]
 name = "doppy-di"
-version = "0.1.0"
 source = { editable = "." }
 
 [package.optional-dependencies]
