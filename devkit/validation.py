@@ -12,7 +12,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Optional, Protocol
 
-from container import Container, Key, OverrideContext, ResolveContext, Scope
+from container import (
+    Container,
+    CycleError,
+    Key,
+    OverrideContext,
+    ResolveContext,
+    Scope,
+)
 
 from .nested import NestedRules
 from .policy import OrderPolicy
@@ -56,12 +63,14 @@ class ValidatingContainer:
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
         >>> base = builder.build()
-        >>> wrapped = ValidatingContainer(base, UnorderedPolicy(), ValidationRunner())
+        >>> wrapped = ValidatingContainer(
+        ...     base, UnorderedPolicy(), ValidationRunner()
+        ... )
         >>> wrapped.get("x")
         1
     """
 
-    __slots__ = ("nested", "policy", "validator", "wrapped")
+    __slots__ = ("_resolving", "nested", "policy", "validator", "wrapped")
 
     def __init__(
         self,
@@ -70,25 +79,33 @@ class ValidatingContainer:
         validator: Optional[ValidationRunner] = None,
         nested: Optional[NestedRules] = None,
     ) -> None:
+        """Wrap container with validation and resolution guard."""
         self.wrapped = wrapped
         self.policy = policy
         self.validator = validator or ValidationRunner()
         self.nested = nested
+        self._resolving: set[Key] = set()
 
     def get(self, key: Key) -> Any:
-        ctx = ResolveContext(self.wrapped)
-        ruleset = self.wrapped.config.ruleset
+        if key in self._resolving:
+            raise CycleError([key])
+        self._resolving.add(key)
+        try:
+            ctx = ResolveContext(self.wrapped)
+            ruleset = self.wrapped.config.ruleset
 
-        self.policy.before_resolve(key, ruleset, ctx)
-        obj = self.wrapped.get(key)
-        self.policy.after_resolve(key, obj, ruleset, ctx)
+            self.policy.before_resolve(key, ruleset, ctx)
+            obj = self.wrapped.get(key)
+            self.policy.after_resolve(key, obj, ruleset, ctx)
 
-        self.validator.run(self.wrapped, key, obj)
+            self.validator.run(self.wrapped, key, obj)
 
-        if self.nested is not None and key in self.nested.map:
-            self.nested.validate_nested(key, self.wrapped, obj)
+            if self.nested is not None and key in self.nested.map:
+                self.nested.validate_nested(key, self.wrapped, obj)
 
-        return obj
+            return obj
+        finally:
+            self._resolving.remove(key)
 
     def has(self, key: Key) -> bool:
         return self.wrapped.has(key)
