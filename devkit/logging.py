@@ -41,7 +41,7 @@ class LoggingContainer:
             obj = self.wrapped.get(key)
             self.log(f"get({key!r}) -> ok")
             return obj
-        except Exception as exc:
+        except BaseException as exc:
             self.log(f"get({key!r}) -> error: {exc.__class__.__name__}")
             raise
 

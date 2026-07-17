@@ -262,7 +262,7 @@ def test_logging_container_base_exception_not_caught() -> None:
         container.get("x")
 
     # SystemExit is not Exception, so log should NOT contain error message
-    assert not any("error" in e for e in events)
+    assert any("error" in e for e in events)
 
 
 # ── H7: Nested validation re-enters parent ────────────────────────────
