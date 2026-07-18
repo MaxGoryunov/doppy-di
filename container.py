@@ -14,6 +14,7 @@ Example:
 from __future__ import annotations
 
 import logging
+import threading
 import uuid
 from dataclasses import dataclass
 from enum import Enum
@@ -385,31 +386,36 @@ class Container:
         42
     """
 
-    __slots__ = ("config", "scope_policy", "scopes", "single")
+    __slots__ = ("config", "lock", "scope_policy", "scopes", "single")
 
     def __init__(self, config: ContainerConfig) -> None:
         self.config = config
         self.single: Dict[Key, Any] = {}
         self.scopes: Dict[str, Scope] = {}
         self.scope_policy: ScopePolicy = config.scope_policy
+        self.lock = threading.RLock()
 
     def get(self, key: Key) -> Any:
         if key in self.single:
             return self.single[key]
 
-        try:
-            rule = self.config.ruleset.find(key)
-        except ServiceNotFoundError:
-            raise
-        ctx = ResolveContext(self)
-        args = [ctx.get(dep) for dep in rule.deps]
-        obj = rule.make(*args)
+        with self.lock:
+            if key in self.single:
+                return self.single[key]
 
-        if rule.lifetime == "singleton":
-            self.single[key] = obj
-        self._cache_nested_aliases(key, obj)
+            try:
+                rule = self.config.ruleset.find(key)
+            except ServiceNotFoundError:
+                raise
+            ctx = ResolveContext(self)
+            args = [ctx.get(dep) for dep in rule.deps]
+            obj = rule.make(*args)
 
-        return obj
+            if rule.lifetime == "singleton":
+                self.single[key] = obj
+            self._cache_nested_aliases(key, obj)
+
+            return obj
 
     def _cache_nested_aliases(self, key: Key, obj: Any) -> None:
         for alias in self.config.ruleset.map:
