@@ -73,7 +73,7 @@ def make_nested(base: Container) -> NestedRules:
     return nested
 
 
-def test_nested_same_object_policy():
+def test_nested_same_object_policy() -> None:
     base = make_container()
     nested = make_nested(base)
     nested.same_policy = SameObjectPolicy()
@@ -94,7 +94,7 @@ def test_nested_same_object_policy():
     assert service.repo.db is db
 
 
-def test_nested_same_value_policy():
+def test_nested_same_value_policy() -> None:
     base = make_container()
     nested = make_nested(base)
     nested.same_policy = SameValuePolicy()
@@ -111,7 +111,7 @@ def test_nested_same_value_policy():
     assert container.get(("repo", "db")).url == service.repo.db.url
 
 
-def test_nested_scope_isolated():
+def test_nested_scope_isolated() -> None:
     base = make_container()
     nested = make_nested(base)
 
@@ -135,7 +135,7 @@ def test_nested_scope_isolated():
     assert a.repo is not c.repo
 
 
-def test_override_changes_nested_resolution():
+def test_override_changes_nested_resolution() -> None:
     base = make_container()
     nested = make_nested(base)
 
@@ -156,7 +156,7 @@ def test_override_changes_nested_resolution():
     assert service.repo.db.url == "postgresql://localhost/app"
 
 
-def test_nested_validation_failure():
+def test_nested_validation_failure() -> None:
     base = make_container()
     nested = make_nested(base)
     nested.same_policy = SameObjectPolicy()
@@ -178,7 +178,7 @@ def test_nested_validation_failure():
         container.get("service")
 
 
-def test_unordered_policy_keeps_basic_resolution():
+def test_unordered_policy_keeps_basic_resolution() -> None:
     base = make_container()
     nested = make_nested(base)
 
@@ -195,7 +195,7 @@ def test_unordered_policy_keeps_basic_resolution():
     assert isinstance(service.repo.db, Database)
 
 
-def test_parent_first_policy_resolves_children_after_parent():
+def test_parent_first_policy_resolves_children_after_parent() -> None:
     base = make_container()
     nested = make_nested(base)
 
@@ -212,7 +212,44 @@ def test_parent_first_policy_resolves_children_after_parent():
     assert isinstance(service.repo.db, Database)
 
 
-def test_cycle_detection_blocks_nested_graph():
+def test_same_value_policy_with_broken_eq() -> None:
+    class Broken:
+        def __init__(self, val: int) -> None:
+            self.val = val
+
+        def __eq__(self, other: object) -> bool:
+            raise RuntimeError("eq broken")
+
+    policy = SameValuePolicy()
+    assert policy.check(Broken(1), Broken(1)) is False
+
+
+def test_same_value_policy_with_broken_eq_strict() -> None:
+    class Broken:
+        def __init__(self, val: int) -> None:
+            self.val = val
+
+        def __eq__(self, other: object) -> bool:
+            raise RuntimeError("eq broken")
+
+    policy = SameValuePolicy(strict=True)
+    with pytest.raises(RuntimeError, match="eq broken"):
+        policy.check(Broken(1), Broken(1))
+
+
+def test_same_value_policy_with_none() -> None:
+    """None == None is True, should not crash."""
+    policy = SameValuePolicy()
+    assert policy.check(None, None)
+
+
+def test_same_value_policy_with_different_types() -> None:
+    """1 == True in Python, but this may be surprising."""
+    policy = SameValuePolicy()
+    assert policy.check(1, True)
+
+
+def test_cycle_detection_blocks_nested_graph() -> None:
     builder = ContainerBuilder()
 
     builder.service("a", lambda b: {"b": b}, deps=["b"])
