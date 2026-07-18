@@ -397,6 +397,103 @@ def test_singleton_thread_safety_race() -> None:
     assert len(ids) == 1, f"Expected 1 unique object, got {len(ids)}: {ids}"
 
 
+def test_singleton_with_dep_thread_safety() -> None:
+    """Singleton with singleton dependency: RLock handles re-entrancy."""
+    call_count = 0
+    dep_call_count = 0
+    lock = threading.Lock()
+    dep_lock = threading.Lock()
+
+    def make_dep() -> int:
+        nonlocal dep_call_count
+        with dep_lock:
+            dep_call_count += 1
+            return dep_call_count
+
+    def make_obj(dep: int) -> Dict[str, int]:
+        nonlocal call_count
+        with lock:
+            call_count += 1
+            return {"id": call_count, "dep": dep}
+
+    builder = ContainerBuilder()
+    builder.service("dep", make_dep, lifetime="singleton")
+    builder.service("x", make_obj, lifetime="singleton", deps=["dep"])
+    container = builder.build()
+
+    results: List[Any] = []
+    errors: List[Exception] = []
+    barrier = threading.Barrier(10)
+
+    def get_x() -> None:
+        barrier.wait()
+        try:
+            results.append(container.get("x"))
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=get_x) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    assert dep_call_count == 1, f"Dep factory called {dep_call_count} times"
+    assert call_count == 1, f"Factory called {call_count} times"
+    ids = {r["id"] for r in results}
+    assert len(ids) == 1, f"Expected 1 unique object, got {len(ids)}: {ids}"
+    # All share the same dep value
+    deps = {r["dep"] for r in results}
+    assert len(deps) == 1, f"Expected 1 unique dep, got {len(deps)}: {deps}"
+
+
+def test_singleton_with_transient_dep_thread_safety() -> None:
+    """Singleton with transient dependency: RLock handles re-entry for non-cached deps."""
+    call_count = 0
+    lock = threading.Lock()
+
+    def make_dep() -> object:
+        return object()
+
+    def make_obj(dep: object) -> Dict[str, Any]:
+        nonlocal call_count
+        with lock:
+            call_count += 1
+            return {"id": call_count, "dep": dep}
+
+    builder = ContainerBuilder()
+    builder.service("dep", make_dep, lifetime="transient")
+    builder.service("x", make_obj, lifetime="singleton", deps=["dep"])
+    container = builder.build()
+
+    results: List[Any] = []
+    errors: List[Exception] = []
+    barrier = threading.Barrier(10)
+
+    def get_x() -> None:
+        barrier.wait()
+        try:
+            results.append(container.get("x"))
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=get_x) for _ in range(10)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert not errors
+    # Factory runs once because double-checked lock prevents re-entry
+    assert call_count == 1, f"Factory called {call_count} times"
+    ids = {r["id"] for r in results}
+    assert len(ids) == 1, f"Expected 1 unique singleton, got {len(ids)}: {ids}"
+    # Each transient dep is a different object
+    deps = {id(r["dep"]) for r in results}
+    assert len(deps) == 1, f"Expected 1 unique dep (resolved once), got {len(deps)}"
+
+
 # ── H11: SameValuePolicy raises in custom __eq__ ──────────────────────
 
 
