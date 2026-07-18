@@ -84,6 +84,19 @@ class NestedRuleError(Exception):
         super().__init__(f"Nested rule error: {parent!r}.{child} - {reason}")
 
 
+class ContainerBuildError(Exception):
+    """Raised when build validation finds missing dependencies.
+
+    Example:
+        >>> raise ContainerBuildError([("a", "b"), ("c", "d")])
+    """
+
+    def __init__(self, missing: List[Tuple[Key, Key]]) -> None:
+        self.missing = missing
+        msg = "; ".join(f"{key} -> {dep}" for key, dep in missing)
+        super().__init__(f"Missing dependencies: {msg}")
+
+
 class DuplicateKeyError(KeyError):
     """Raised when a duplicate key is registered under the FAIL policy.
 
@@ -506,15 +519,26 @@ class ContainerBuilder:
         )
 
     def alias(self, key: Key, target: Key) -> None:
+        def make_alias(value: Any) -> Any:
+            return value
+
         self._register(
             key,
             Rule(
                 key=key,
-                make=lambda: None,
+                make=make_alias,
                 lifetime="transient",
                 deps=(target,),
             ),
         )
 
-    def build(self) -> Container:
+    def build(self, validate: bool = False) -> Container:
+        if validate:
+            missing: List[Tuple[Key, Key]] = []
+            for key, rule in self.rules.map.items():
+                for dep in rule.deps:
+                    if dep not in self.rules.map:
+                        missing.append((key, dep))
+            if missing:
+                raise ContainerBuildError(missing)
         return Container(ContainerConfig(self.rules, scope_policy=self.scope_policy))

@@ -356,6 +356,26 @@ def test_alias_to_missing_target_does_not_fail_at_build() -> None:
     assert not container.has("b")
 
 
+def test_alias_to_missing_target_fails_at_build_with_validation() -> None:
+    """build(validate=True) catches missing deps early."""
+    from container import ContainerBuildError
+
+    builder = ContainerBuilder()
+    builder.alias("a", "b")
+    with pytest.raises(ContainerBuildError) as exc:
+        builder.build(validate=True)
+    assert ("a", "b") in exc.value.missing
+
+
+def test_build_validation_passes_with_all_deps() -> None:
+    """build(validate=True) succeeds when all deps exist."""
+    builder = ContainerBuilder()
+    builder.value("b", 1)
+    builder.alias("a", "b")
+    container = builder.build(validate=True)
+    assert container.get("a") == 1
+
+
 # ── H10: Thread-safety hole in singleton ──────────────────────────────
 
 
