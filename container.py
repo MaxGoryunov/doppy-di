@@ -188,9 +188,16 @@ class RuleSet:
 
     def add(self, key: Key, rule: Rule) -> None:
         """Add a rule and validate graph cycles."""
+        old_map = dict(self.map)
+        old_graph = dict(self.graph)
         self.map[key] = rule
         self.graph[key] = tuple(rule.deps)
-        self._check_cycle(key)
+        try:
+            self._check_cycle(key)
+        except CycleError:
+            self.map = old_map
+            self.graph = old_graph
+            raise
 
     def find(self, key: Key) -> Rule:
         """Return a rule by key."""
