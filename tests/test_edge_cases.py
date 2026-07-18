@@ -526,8 +526,7 @@ def test_same_value_policy_with_broken_eq() -> None:
             raise RuntimeError("eq broken")
 
     policy = SameValuePolicy()
-    with pytest.raises(RuntimeError, match="eq broken"):
-        policy.check(Broken(1), Broken(1))
+    assert policy.check(Broken(1), Broken(1)) is False
 
 
 def test_same_value_policy_with_none() -> None:

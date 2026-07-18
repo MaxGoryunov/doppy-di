@@ -9,10 +9,13 @@ Example:
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol
 
 from container import Container, Key, NestedRuleError, Rule, RuleSet
+
+logger = logging.getLogger(__name__)
 
 
 class NestedPolicy(Protocol):
@@ -46,8 +49,21 @@ class SameValuePolicy:
         True
     """
 
+    strict: bool = False
+
     def check(self, nested: Any, resolved: Any) -> bool:
-        return bool(nested == resolved)
+        try:
+            return bool(nested == resolved)
+        except Exception as exc:
+            if self.strict:
+                raise
+            logger.warning(
+                "SameValuePolicy check failed for %r == %r: %s",
+                nested,
+                resolved,
+                exc,
+            )
+            return False
 
 
 @dataclass(frozen=True)
