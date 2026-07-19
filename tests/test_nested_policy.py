@@ -1,5 +1,7 @@
 """Tests for nested policies, scopes and overrides."""
 
+from typing import Any
+
 import pytest
 
 from container import Container, ContainerBuilder, CycleError, NestedRuleError, Rule
@@ -255,3 +257,57 @@ def test_cycle_detection_blocks_nested_graph() -> None:
     builder.service("a", lambda b: {"b": b}, deps=["b"])
     with pytest.raises(CycleError):
         builder.service("b", lambda a: {"a": a}, deps=["a"])
+
+
+def test_children_first_policy_deep_nested_recursion() -> None:
+    class Deep:
+        def __init__(self, child: Any = None) -> None:
+            self.child = child
+
+    builder = ContainerBuilder()
+    builder.service("a", lambda: Deep(), lifetime="transient")
+    builder.service("b", lambda: Deep(), lifetime="transient")
+    builder.service("c", lambda: Deep(), lifetime="transient")
+    builder.rules.add(
+        ("a", "b"),
+        Rule(("a", "b"), lambda: Deep(), lifetime="transient"),
+    )
+    builder.rules.add(
+        ("b", "c"),
+        Rule(("b", "c"), lambda: Deep(), lifetime="transient"),
+    )
+    base = builder.build()
+
+    container = ValidatingContainer(
+        base,
+        ChildrenFirstPolicy(nested={"a": ["b"], "b": ["c"]}),
+        ValidationRunner(),
+        None,
+    )
+
+    try:
+        a = container.get("a")
+        assert hasattr(a, "child")
+        assert a.child is None
+    except RecursionError:
+        pytest.fail("ChildrenFirstPolicy caused infinite recursion with deep nested chain")
+
+
+def test_children_first_policy_self_referential() -> None:
+    builder = ContainerBuilder()
+    builder.value("x", 1)
+    builder.rules.add(
+        ("x", "x"),
+        Rule(("x", "x"), lambda: 1, lifetime="transient"),
+    )
+    base = builder.build()
+
+    container = ValidatingContainer(
+        base,
+        ChildrenFirstPolicy(nested={"x": ["x"]}),
+        ValidationRunner(),
+        None,
+    )
+
+    val = container.get("x")
+    assert val == 1
