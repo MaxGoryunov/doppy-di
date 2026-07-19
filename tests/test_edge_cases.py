@@ -626,6 +626,24 @@ def test_scope_double_enter() -> None:
     assert a == b
 
 
+def test_scope_double_enter_nested() -> None:
+    """Nested with scope: inner __exit__ must NOT clear cache."""
+    builder = ContainerBuilder()
+    builder.service("x", lambda: object(), lifetime="transient")
+    container = builder.build()
+
+    scope = container.scope("nested")
+    with scope:
+        a = scope.get("x")
+        with scope:
+            b = scope.get("x")  # cache hit — same object
+            assert a is b, "cache hit inside nested enter"
+        # inner __exit__ — cache should survive
+        c = scope.get("x")
+        assert a is c, "cache still alive after inner exit"
+    # outer __exit__ — cache cleared now
+
+
 def test_scope_enter_without_exit_leaks() -> None:
     """If user never calls __exit__, cache persists forever."""
     builder = ContainerBuilder()
