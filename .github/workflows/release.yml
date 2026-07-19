@@ -60,6 +60,12 @@ jobs:
       
       - run: git fetch --tags
 
+      - name: Switch to the released tag
+        run: |
+          LATEST_TAG=$(git describe --tags --abbrev=0)
+          echo "Switching to tag $LATEST_TAG"
+          git checkout $LATEST_TAG
+
       - name: Build package
         run: uv build
 
