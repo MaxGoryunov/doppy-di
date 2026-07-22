@@ -108,3 +108,10 @@ jobs:
         with:
           name: loc-badge
           path: ./output/badge.svg
+      - name: Deploy badge to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./output
+          destination_dir: .
+          keep_files: false

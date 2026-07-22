@@ -33,6 +33,7 @@
 
 [![Hits-of-Code](https://hitsofcode.com/github/MaxGoryunov/doppy-di?branch=main&exclude=.gitignore,uv.lock)](https://hitsofcode.com/github/MaxGoryunov/doppy-di/view?branch=main&exclude=.gitignore,uv.lock)
 [![SLOC](https://tokei.rs/b1/github/MaxGoryunov/doppy-di?category=code)](https://github.com/MaxGoryunov/doppy-di)
+[![Python LoC](https://raw.githubusercontent.com/MaxGoryunov/doppy-di/gh-pages/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
 [![GitHub issues](https://img.shields.io/github/issues/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/pulls)
 
