@@ -89,3 +89,22 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  badge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make Code Badge
+        uses: shadowmoose/GHA-LoC-Badge@1.0.0
+        id: badge
+        with:
+          debug: false
+          directory: ./
+          badge: ./output/badge.svg
+          patterns: '*.py'
+          ignore: 'tests/**'
+      - name: Upload badge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: loc-badge
+          path: ./output/badge.svg
