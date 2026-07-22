@@ -1,13 +1,15 @@
 [![CI](https://github.com/MaxGoryunov/doppy-di/actions/workflows/ci.yml/badge.svg)](https://github.com/MaxGoryunov/doppy-di/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/MaxGoryunov/doppy-di/branch/main/graph/badge.svg)](https://codecov.io/gh/MaxGoryunov/doppy-di)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](https://www.python.org/)
+[![PyPI version](https://img.shields.io/pypi/v/doppy-di)](https://pypi.org/project/doppy-di/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 
-[![PyPI version](https://img.shields.io/pypi/v/doppy-di)](https://pypi.org/project/doppy-di/)
 [![PyPI status](https://img.shields.io/pypi/status/doppy-di)](https://pypi.org/project/doppy-di/)
 [![Downloads](https://img.shields.io/pypi/dm/doppy-di)](https://pypi.org/project/doppy-di/)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](https://pypi.org/project/doppy-di/)
+[![PEP 561](https://img.shields.io/badge/PEP%20561-typed-brightgreen)](https://peps.python.org/pep-0561/)
+[![async ready](https://img.shields.io/badge/async-ready-brightgreen)](https://docs.python.org/3/library/asyncio.html)
 
 [![Maintainability](https://qlty.sh/gh/MaxGoryunov/projects/doppy-di/maintainability.svg)](https://qlty.sh/gh/MaxGoryunov/projects/doppy-di)
 [![CodeFactor](https://www.codefactor.io/repository/github/maxgoryunov/doppy-di/badge)](https://www.codefactor.io/repository/github/maxgoryunov/doppy-di)
@@ -27,13 +29,9 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Hatch](https://img.shields.io/badge/%F0%9F%A5%9A-Hatch-4051b5.svg)](https://github.com/pypa/hatch)
 
-[![SemVer](https://img.shields.io/badge/dynamic/json?url=https://pypi.org/pypi/doppy-di/json&query=%24.info.version&label=SemVer&color=brightgreen)](https://semver.org/)<!-- [![typed](https://img.shields.io/badge/typed-Yes-brightgreen)](https://peps.python.org/pep-0561/) -->
-[![PEP 561](https://img.shields.io/badge/PEP%20561-typed-brightgreen)](https://peps.python.org/pep-0561/)
-[![async ready](https://img.shields.io/badge/async-ready-brightgreen)](https://docs.python.org/3/library/asyncio.html)
 
 [![Hits-of-Code](https://hitsofcode.com/github/MaxGoryunov/doppy-di?branch=main&exclude=.gitignore,uv.lock)](https://hitsofcode.com/github/MaxGoryunov/doppy-di/view?branch=main&exclude=.gitignore,uv.lock)
-[![SLOC](https://tokei.rs/b1/github/MaxGoryunov/doppy-di?category=code)](https://github.com/MaxGoryunov/doppy-di)
-[![Python LoC](https://raw.githubusercontent.com/MaxGoryunov/doppy-di/gh-pages/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
+[![LoC](https://MaxGoryunov.github.io/doppy-di/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
 [![GitHub issues](https://img.shields.io/github/issues/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/pulls)
 
