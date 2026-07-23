@@ -6,6 +6,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write
+
 jobs:
   lint-type:
     runs-on: ubuntu-latest
@@ -83,12 +86,35 @@ jobs:
         run: uv sync --extra dev
 
       - name: Run tests
-        run: uv run pytest --cov-report=xml
+        run: uv run pytest --cov --cov-branch --cov-report=xml
 
-      - name: Upload coverage
-        if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v4
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
         with:
-          file: ./coverage.xml
-          flags: unittests
-          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  badge:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make Code Badge
+        uses: shadowmoose/GHA-LoC-Badge@1.0.0
+        id: badge
+        with:
+          debug: false
+          directory: ./
+          badge: ./output/badge.svg
+          patterns: '*.py'
+          ignore: 'tests/**'
+      - name: Upload badge artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: loc-badge
+          path: ./output/badge.svg
+      - name: Deploy badge to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./output
+          destination_dir: .
+          keep_files: false
