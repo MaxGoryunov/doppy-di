@@ -43,7 +43,7 @@ Minimal dependency injection container for Python. Provides immutable rule defin
 pip install doppy-di
 ```
 
-Requires Python 3.9 or later.
+Requires Python 3.10 or later.
 
 ### Basic usage
 
