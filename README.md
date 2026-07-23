@@ -4,8 +4,6 @@
 [![PyPI version](https://img.shields.io/pypi/v/doppy-di)](https://pypi.org/project/doppy-di/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-
-[![PyPI status](https://img.shields.io/pypi/status/doppy-di)](https://pypi.org/project/doppy-di/)
 [![Downloads](https://img.shields.io/pypi/dm/doppy-di)](https://pypi.org/project/doppy-di/)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](https://pypi.org/project/doppy-di/)
 [![PEP 561](https://img.shields.io/badge/PEP%20561-typed-brightgreen)](https://peps.python.org/pep-0561/)
