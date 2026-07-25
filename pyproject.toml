@@ -38,6 +38,11 @@ dev = [
     "ruff>=0.12",
     "uv>=0.11",
 ]
+docs = [
+    "mkdocs",
+    "mkdocs-material",
+    "mkdocstrings[python]",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/doppy_di"]
@@ -74,3 +79,10 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 source = ["src/doppy_di"]
+
+[dependency-groups]
+doc = [
+    "mkdocs>=1.6.1",
+    "mkdocs-material>=9.7.7",
+    "mkdocstrings[python]>=1.0.6",
+]

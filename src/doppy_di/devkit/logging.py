@@ -5,6 +5,9 @@ Example:
     >>> builder = ContainerBuilder()
     >>> builder.value("x", 1)
     >>> base = builder.build()
+    >>> wrapped = LoggingContainer(base, lambda msg: None)
+    >>> wrapped.get("x")
+    1
 """
 
 from __future__ import annotations
@@ -36,6 +39,7 @@ class LoggingContainer:
     log: Callable[[str], None]
 
     def get(self, key: Key) -> Any:
+        """Resolve key and log the operation."""
         self.log(f"get({key!r})")
         try:
             obj = self.wrapped.get(key)
@@ -46,13 +50,16 @@ class LoggingContainer:
             raise
 
     def has(self, key: Key) -> bool:
+        """Log presence check and delegate."""
         self.log(f"has({key!r})")
         return self.wrapped.has(key)
 
     def scope(self, name: str) -> Scope:
+        """Log scope creation and delegate."""
         self.log(f"scope({name!r})")
         return self.wrapped.scope(name)
 
     def override(self, key: Key, value: Any) -> OverrideContext:
+        """Log override creation and delegate."""
         self.log(f"override({key!r})")
         return self.wrapped.override(key, value)

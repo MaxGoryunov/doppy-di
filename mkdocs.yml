@@ -1,0 +1,21 @@
+
+site_name: doppy-di
+site_url: https://MaxGoryunov.github.io/doppy-di/
+repo_url: https://github.com/MaxGoryunov/doppy-di
+repo_name: MaxGoryunov/doppy-di
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - API: api.md
