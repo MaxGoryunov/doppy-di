@@ -2,10 +2,10 @@
 
 import pytest
 
-from container import ContainerBuilder, CycleError
+from doppy_di.container import ContainerBuilder, CycleError
 
 
-def test_no_cycle():
+def test_no_cycle() -> None:
     builder = ContainerBuilder()
     builder.service("a", lambda: 1)
     builder.service("b", lambda a: a + 1, deps=["a"])
@@ -14,7 +14,7 @@ def test_no_cycle():
     assert container.get("b") == 2
 
 
-def test_direct_cycle():
+def test_direct_cycle() -> None:
     builder = ContainerBuilder()
 
     builder.service("a", lambda b: b, deps=["b"])
@@ -22,7 +22,7 @@ def test_direct_cycle():
         builder.service("b", lambda a: a, deps=["a"])
 
 
-def test_indirect_cycle():
+def test_indirect_cycle() -> None:
     builder = ContainerBuilder()
     builder.service("a", lambda b: b, deps=["b"])
     builder.service("b", lambda c: c, deps=["c"])
@@ -30,7 +30,7 @@ def test_indirect_cycle():
         builder.service("c", lambda a: a, deps=["a"])
 
 
-def test_cycle_error_path():
+def test_cycle_error_path() -> None:
     builder = ContainerBuilder()
     builder.service("a", lambda b: b, deps=["b"])
     with pytest.raises(CycleError) as exc:

@@ -1,15 +1,15 @@
 """Policy integration tests with cache behavior."""
 
-from container import ContainerBuilder
-from devkit.nested import NestedRules, SameValuePolicy
-from devkit.policy import ChildrenFirstPolicy, ParentFirstPolicy, UnorderedPolicy
-from devkit.validation import ValidatingContainer, ValidationRunner
+from doppy_di.container import ContainerBuilder
+from doppy_di.devkit.nested import NestedRules, SameValuePolicy
+from doppy_di.devkit.policy import ChildrenFirstPolicy, ParentFirstPolicy, UnorderedPolicy
+from doppy_di.devkit.validation import ValidatingContainer, ValidationRunner
 
 
-def test_children_first_keeps_singleton_identity():
+def test_children_first_keeps_singleton_identity() -> None:
     calls = 0
 
-    def make_db():
+    def make_db() -> dict[str, int]:
         nonlocal calls
         calls += 1
         return {"db": calls}
@@ -27,10 +27,10 @@ def test_children_first_keeps_singleton_identity():
     assert calls == 1
 
 
-def test_parent_first_scope_identity():
+def test_parent_first_scope_identity() -> None:
     calls = 0
 
-    def make_item():
+    def make_item() -> dict[str, int]:
         nonlocal calls
         calls += 1
         return {"item": calls}
@@ -52,7 +52,7 @@ def test_parent_first_scope_identity():
     assert a1 is not b1
 
 
-def test_unordered_no_extra_effect():
+def test_unordered_no_extra_effect() -> None:
     builder = ContainerBuilder()
     builder.service("child", lambda: 1)
     builder.service("parent", lambda child: {"child": child}, deps=["child"])
@@ -64,7 +64,7 @@ def test_unordered_no_extra_effect():
     assert obj["child"] == 1
 
 
-def test_nested_validation_value_policy():
+def test_nested_validation_value_policy() -> None:
     builder = ContainerBuilder()
     builder.service("url", lambda: "postgresql://localhost/app", lifetime="singleton")
     builder.service("db", lambda url: {"url": url}, deps=["url"], lifetime="singleton")

@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from container import Container, Key, OverrideContext, Scope
+from ..container import Container, Key, OverrideContext, Scope
 
 
 @dataclass(frozen=True)

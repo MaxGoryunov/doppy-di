@@ -39,11 +39,8 @@ dev = [
     "uv>=0.11",
 ]
 
-[tool.hatch.build]
-include = [
-    "container.py",
-    "devkit/**/*.py",
-]
+[tool.hatch.build.targets.wheel]
+packages = ["src/doppy_di"]
 
 [tool.hatch.version]
 source = "vcs"
@@ -63,7 +60,7 @@ ignore = ["UP006", "UP007", "UP035", "UP037", "UP045"]
 python_version = "3.10"
 strict = true
 warn_unreachable = true
-files = ["container.py", "devkit"]
+files = ["src/doppy_di"]
 exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/']
 
 [[tool.mypy.overrides]]
@@ -71,9 +68,9 @@ module = "noxfile"
 ignore_errors = true
 
 [tool.pytest.ini_options]
-addopts = "--cov=container --cov=devkit --cov-report=term-missing"
+addopts = "--cov=src/doppy_di --cov-report=term-missing"
 testpaths = ["tests"]
 
 [tool.coverage.run]
 branch = true
-source = ["container", "devkit"]
+source = ["src/doppy_di"]
