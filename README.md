@@ -1,3 +1,13 @@
+[![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://maxgoryunov.github.io/doppy-di/)
+
+## Documentation
+
+Full documentation is available at [maxgoryunov.github.io/doppy-di](https://maxgoryunov.github.io/doppy-di/).
+
+The documentation includes:
+- Installation guide
+- Usage examples
+- Auto-generated API reference from source code docstrings
 [![CI](https://github.com/MaxGoryunov/doppy-di/actions/workflows/ci.yml/badge.svg)](https://github.com/MaxGoryunov/doppy-di/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/MaxGoryunov/doppy-di/branch/main/graph/badge.svg)](https://codecov.io/gh/MaxGoryunov/doppy-di)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](https://www.python.org/)
@@ -29,11 +39,20 @@
 
 
 [![Hits-of-Code](https://hitsofcode.com/github/MaxGoryunov/doppy-di?branch=main&exclude=.gitignore,uv.lock)](https://hitsofcode.com/github/MaxGoryunov/doppy-di/view?branch=main&exclude=.gitignore,uv.lock)
-[![LoC](https://MaxGoryunov.github.io/doppy-di/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
+[![LoC](https://MaxGoryunov.github.io/doppy-di/badge/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
 [![GitHub issues](https://img.shields.io/github/issues/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/pulls)
 
 Minimal dependency injection container for Python. Provides immutable rule definitions, singleton/transient lifetimes, scoped caching, nested attribute resolution, cycle detection, and optional validation, logging, and ordering layers.
+
+## Documentation
+
+Full documentation is available at [maxgoryunov.github.io/doppy-di](https://maxgoryunov.github.io/doppy-di/).
+
+The documentation includes:
+- Installation guide
+- Usage examples
+- Auto-generated API reference from source code docstrings
 
 ## How to use it
 

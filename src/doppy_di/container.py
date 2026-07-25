@@ -127,8 +127,9 @@ class ScopePolicy(Enum):
     """Strategy for resolving scopes by name.
 
     NAMED: reuse the same Scope object for the same name (current default).
-    UNIQUE: return a fresh Scope per call, stored under a unique internal key
-            so its cache never leaks across calls even if __exit__ is forgotten.
+    UNIQUE: return a fresh Scope per call, stored under a unique internal
+            key so its cache never leaks across calls even if __exit__
+            is forgotten.
     """
 
     NAMED = "named"
@@ -197,11 +198,16 @@ class RuleSet:
         rules_map: Optional[Dict[Key, Rule]] = None,
         graph: Optional[Dict[Key, Tuple[Key, ...]]] = None,
     ) -> None:
+        """Initialize storage from optional existing map and graph."""
         self.map = dict(rules_map or {})
         self.graph = dict(graph or {})
 
     def add(self, key: Key, rule: Rule) -> None:
-        """Add a rule and validate graph cycles."""
+        """Add a rule and validate graph cycles.
+
+        Raises:
+            CycleError: If adding the rule creates a dependency cycle.
+        """
         old_map = dict(self.map)
         old_graph = dict(self.graph)
         self.map[key] = rule
@@ -214,7 +220,11 @@ class RuleSet:
             raise
 
     def find(self, key: Key) -> Rule:
-        """Return a rule by key."""
+        """Return a rule by key.
+
+        Raises:
+            ServiceNotFoundError: If key is not registered.
+        """
         try:
             return self.map[key]
         except KeyError:
@@ -269,7 +279,11 @@ class ResolveContext:
 
     __slots__ = ("container", "scope")
 
-    def __init__(self, container: Container, scope: Optional[Scope] = None) -> None:
+    def __init__(
+        self,
+        container: Container,
+        scope: Optional[Scope] = None,
+    ) -> None:
         self.container = container
         self.scope = scope or container
 
@@ -348,12 +362,14 @@ class Scope:
     __slots__ = ("_depth", "cache", "container", "name")
 
     def __init__(self, container: Container, name: str) -> None:
+        """Create a named scope with an empty local cache."""
         self.container = container
         self.name = name
         self.cache: Dict[Key, Any] = {}
         self._depth = 0
 
     def get(self, key: Key) -> Any:
+        """Resolve key from scope cache or underlying container."""
         if key in self.cache:
             return self.cache[key]
         obj = self.container.get(key)
@@ -396,6 +412,12 @@ class Container:
         self.lock = threading.RLock()
 
     def get(self, key: Key) -> Any:
+        """Resolve a service by key.
+
+        Returns the cached singleton if already resolved, otherwise resolves
+        the rule from the config, applies the scope policy, and stores the
+        result for singleton lifetimes.
+        """
         if key in self.single:
             return self.single[key]
 
@@ -419,13 +441,14 @@ class Container:
 
     def _cache_nested_aliases(self, key: Key, obj: Any) -> None:
         for alias in self.config.ruleset.map:
-            if not isinstance(alias, tuple) or len(alias) != 2 or alias[0] != key:
+            if not isinstance(alias, tuple) or len(alias) != 2 or (alias[0] != key):
                 continue
             child = alias[1]
             if isinstance(child, str) and hasattr(obj, child):
                 self.single[alias] = getattr(obj, child)
 
     def has(self, key: Key) -> bool:
+        """Return True if a rule for key is registered."""
         return self.config.ruleset.has(key)
 
     def get_or_none(self, key: Key) -> Any:
@@ -443,6 +466,7 @@ class Container:
             return None
 
     def scope(self, name: str) -> Scope:
+        """Return a named or unique scope according to the active policy."""
         if self.scope_policy == ScopePolicy.NAMED:
             if name in self.scopes:
                 return self.scopes[name]
@@ -456,6 +480,7 @@ class Container:
         return scope
 
     def override(self, key: Key, value: Any) -> OverrideContext:
+        """Create a temporary override context for the given key."""
         return OverrideContext(self, key, value)
 
 
@@ -492,13 +517,14 @@ class ContainerBuilder:
         duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
         scope_policy: ScopePolicy = ScopePolicy.NAMED,
     ) -> None:
+        """Initialize builder with optional policies."""
         self.rules = RuleSet()
         self.duplicate_policy = duplicate_policy
         self.scope_policy = scope_policy
 
     def _register(self, key: Key, rule: Rule) -> None:
         """Add rule honoring the active duplicate policy."""
-        if key in self.rules.map and self.duplicate_policy != DuplicateKeyPolicy.OVERWRITE:
+        if key in self.rules.map and self.duplicate_policy != (DuplicateKeyPolicy.OVERWRITE):
             if self.duplicate_policy == DuplicateKeyPolicy.FAIL:
                 raise DuplicateKeyError(key)
             # WARN
@@ -512,7 +538,12 @@ class ContainerBuilder:
         lifetime: Lifetime = "transient",
         deps: Optional[List[Key]] = None,
     ) -> None:
-        rule = Rule(key=key, make=make, lifetime=lifetime, deps=tuple(deps or ()))
+        rule = Rule(
+            key=key,
+            make=make,
+            lifetime=lifetime,
+            deps=tuple(deps or ()),
+        )
         self._register(key, rule)
 
     def value(self, key: Key, value: Any) -> None:
@@ -521,7 +552,12 @@ class ContainerBuilder:
 
         self._register(
             key,
-            Rule(key=key, make=make_value, lifetime="singleton", deps=()),
+            Rule(
+                key=key,
+                make=make_value,
+                lifetime="singleton",
+                deps=(),
+            ),
         )
 
     def alias(self, key: Key, target: Key) -> None:

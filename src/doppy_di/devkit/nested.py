@@ -1,9 +1,9 @@
 """Nested-rule validation helpers.
 
 Example:
-    >>> from container import ContainerBuilder
+    >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
-    >>> builder.value("x", 1)
+    >>> builder.value("service", object())
     >>> nested = NestedRules()
 """
 
@@ -19,7 +19,11 @@ logger = logging.getLogger(__name__)
 
 
 class NestedPolicy(Protocol):
-    """Policy used to compare nested objects."""
+    """Policy used to compare nested objects.
+
+    Implementations compare the resolved nested attribute against the object
+    stored under the nested rule key.
+    """
 
     def check(self, nested: Any, resolved: Any) -> bool:
         """Return True if nested object is valid."""
@@ -31,17 +35,23 @@ class SameObjectPolicy:
 
     Example:
         >>> policy = SameObjectPolicy()
-        >>> policy.check(object(), object())
-        False
+        >>> obj = object()
+        >>> policy.check(obj, obj)
+        True
     """
 
     def check(self, nested: Any, resolved: Any) -> bool:
+        """Return True only when both references are the same object."""
         return nested is resolved
 
 
 @dataclass(frozen=True)
 class SameValuePolicy:
     """Check value equality for nested values.
+
+    Attributes:
+        strict: When True, propagate comparison exceptions instead of
+            returning False.
 
     Example:
         >>> policy = SameValuePolicy()
@@ -52,6 +62,11 @@ class SameValuePolicy:
     strict: bool = False
 
     def check(self, nested: Any, resolved: Any) -> bool:
+        """Return True when both values compare equal.
+
+        When ``strict`` is False, exceptions raised during comparison are
+        logged and treated as inequality.
+        """
         try:
             return bool(nested == resolved)
         except Exception as exc:
@@ -96,6 +111,11 @@ class NestedRules:
         self.same_policy: NestedPolicy = SameValuePolicy()
 
     def add_nested(self, parent: Key, child: str, rule: Rule, ruleset: RuleSet) -> None:
+        """Register a nested dependency for a parent key.
+
+        The nested key ``(parent, child)`` is added to the shared ruleset and
+        tracked for validation.
+        """
         nested_key = (parent, child)
         ruleset.add(nested_key, rule)
         self.map.setdefault(parent, [])
@@ -103,9 +123,11 @@ class NestedRules:
             self.map[parent].append(child)
 
     def children_of(self, parent: Key) -> List[str]:
+        """Return the registered nested child names for a parent."""
         return list(self.map.get(parent, []))
 
     def validate_nested(self, parent: Key, container: Container, parent_obj: Any = None) -> None:
+        """Validate nested rules for a resolved parent object."""
         children = self.children_of(parent)
         if not children:
             return
