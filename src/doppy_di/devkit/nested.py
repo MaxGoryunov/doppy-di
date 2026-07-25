@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Dict, List, Protocol
 
-from container import Container, Key, NestedRuleError, Rule, RuleSet
+from ..container import Container, Key, NestedRuleError, Rule, RuleSet
 
 logger = logging.getLogger(__name__)
 

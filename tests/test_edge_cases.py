@@ -5,11 +5,18 @@ from typing import Any, Dict, List
 
 import pytest
 
-from container import ContainerBuilder, CycleError, Key, NestedRuleError, Rule, ServiceNotFoundError
-from devkit.logging import LoggingContainer
-from devkit.nested import NestedRules, SameValuePolicy
-from devkit.policy import ChildrenFirstPolicy
-from devkit.validation import ValidatingContainer, ValidationRunner
+from doppy_di.container import (
+    ContainerBuilder,
+    CycleError,
+    Key,
+    NestedRuleError,
+    Rule,
+    ServiceNotFoundError,
+)
+from doppy_di.devkit.logging import LoggingContainer
+from doppy_di.devkit.nested import NestedRules, SameValuePolicy
+from doppy_di.devkit.policy import ChildrenFirstPolicy
+from doppy_di.devkit.validation import ValidatingContainer, ValidationRunner
 
 # ── H1: Missing key panic ──────────────────────────────────────────────
 
@@ -23,7 +30,7 @@ def test_get_missing_key_raises_error() -> None:
 
 
 def test_ruleset_find_missing_raises_error() -> None:
-    from container import RuleSet
+    from doppy_di.container import RuleSet
 
     rules = RuleSet()
     with pytest.raises(ServiceNotFoundError):
@@ -58,7 +65,7 @@ def test_duplicate_key_overwrites_silently() -> None:
 
 
 def test_duplicate_key_ruleset_overwrites() -> None:
-    from container import RuleSet
+    from doppy_di.container import RuleSet
 
     rules = RuleSet()
     rules.add("k", Rule("k", lambda: 1))
@@ -67,7 +74,7 @@ def test_duplicate_key_ruleset_overwrites() -> None:
 
 
 def test_duplicate_key_fail_raises() -> None:
-    from container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
+    from doppy_di.container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
 
     builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
     builder.value("x", 1)
@@ -76,7 +83,7 @@ def test_duplicate_key_fail_raises() -> None:
 
 
 def test_duplicate_key_warn_overwrites() -> None:
-    from container import ContainerBuilder, DuplicateKeyPolicy
+    from doppy_di.container import ContainerBuilder, DuplicateKeyPolicy
 
     builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.WARN)
     builder.value("x", 1)
@@ -87,7 +94,7 @@ def test_duplicate_key_warn_overwrites() -> None:
 
 
 def test_duplicate_key_service_fail_raises() -> None:
-    from container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
+    from doppy_di.container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
 
     builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
     builder.service("x", lambda: 1)
@@ -96,7 +103,7 @@ def test_duplicate_key_service_fail_raises() -> None:
 
 
 def test_duplicate_key_alias_fail_raises() -> None:
-    from container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
+    from doppy_di.container import ContainerBuilder, DuplicateKeyError, DuplicateKeyPolicy
 
     builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
     builder.value("x", 1)
@@ -146,7 +153,7 @@ def test_scope_reuse_before_exit_keeps_cache() -> None:
 
 def test_scope_named_policy_reuses_scope() -> None:
     """Default (NAMED) policy: same scope name returns same Scope object."""
-    from container import ScopePolicy
+    from doppy_di.container import ScopePolicy
 
     builder = ContainerBuilder(scope_policy=ScopePolicy.NAMED)
     builder.service("x", lambda: object(), lifetime="transient")
@@ -159,7 +166,7 @@ def test_scope_named_policy_reuses_scope() -> None:
 
 def test_scope_unique_policy_returns_fresh_scope() -> None:
     """UNIQUE policy: each call returns a distinct Scope object."""
-    from container import ScopePolicy
+    from doppy_di.container import ScopePolicy
 
     builder = ContainerBuilder(scope_policy=ScopePolicy.UNIQUE)
     builder.service("x", lambda: object(), lifetime="transient")
@@ -172,7 +179,7 @@ def test_scope_unique_policy_returns_fresh_scope() -> None:
 
 def test_scope_unique_policy_cache_independent() -> None:
     """UNIQUE policy: cache of one scope never leaks into another."""
-    from container import ScopePolicy
+    from doppy_di.container import ScopePolicy
 
     builder = ContainerBuilder(scope_policy=ScopePolicy.UNIQUE)
     builder.service("x", lambda: object(), lifetime="transient")
@@ -229,7 +236,7 @@ def test_unknown_lifetime_not_cached() -> None:
 
 def test_unknown_lifetime_not_cached_for_value() -> None:
     """User manually creates Rule with bad lifetime string -> ValueError."""
-    from container import Rule, RuleSet
+    from doppy_di.container import Rule, RuleSet
 
     rules = RuleSet()
     with pytest.raises(ValueError, match="Unknown lifetime"):
@@ -319,7 +326,7 @@ def test_nested_validation_chain_no_recursion() -> None:
 
 
 def test_cycle_error_leaves_partial_state() -> None:
-    from container import RuleSet
+    from doppy_di.container import RuleSet
 
     rules = RuleSet()
     rules.add("a", Rule("a", lambda: 1))
@@ -358,7 +365,7 @@ def test_alias_to_missing_target_does_not_fail_at_build() -> None:
 
 def test_alias_to_missing_target_fails_at_build_with_validation() -> None:
     """build(validate=True) catches missing deps early."""
-    from container import ContainerBuildError
+    from doppy_di.container import ContainerBuildError
 
     builder = ContainerBuilder()
     builder.alias("a", "b")

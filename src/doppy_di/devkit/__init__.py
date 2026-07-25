@@ -1,7 +1,6 @@
 """Devkit package for optional runtime layers and validation."""
 
-from container import ResolveContext
-
+from ..container import ResolveContext
 from .logging import LoggingContainer
 from .nested import NestedPolicy, NestedRules, SameObjectPolicy, SameValuePolicy
 from .policy import (

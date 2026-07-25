@@ -1,7 +1,7 @@
 """Tests for logging container layer."""
 
-from container import ContainerBuilder
-from devkit.logging import LoggingContainer
+from doppy_di.container import ContainerBuilder
+from doppy_di.devkit.logging import LoggingContainer
 
 
 def test_logging_get() -> None:

@@ -2,7 +2,7 @@
 
 import pytest
 
-from container import ContainerBuilder
+from doppy_di.container import ContainerBuilder
 
 
 @pytest.fixture

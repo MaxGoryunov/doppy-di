@@ -4,10 +4,10 @@ from typing import Any
 
 import pytest
 
-from container import Container, ContainerBuilder, CycleError, NestedRuleError, Rule
-from devkit.nested import NestedRules, SameObjectPolicy, SameValuePolicy
-from devkit.policy import ChildrenFirstPolicy, ParentFirstPolicy, UnorderedPolicy
-from devkit.validation import ValidatingContainer, ValidationRunner
+from doppy_di.container import Container, ContainerBuilder, CycleError, NestedRuleError, Rule
+from doppy_di.devkit.nested import NestedRules, SameObjectPolicy, SameValuePolicy
+from doppy_di.devkit.policy import ChildrenFirstPolicy, ParentFirstPolicy, UnorderedPolicy
+from doppy_di.devkit.validation import ValidatingContainer, ValidationRunner
 
 
 class Database:

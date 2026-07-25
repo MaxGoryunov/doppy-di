@@ -12,7 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Optional, Protocol
 
-from container import (
+from ..container import (
     Container,
     CycleError,
     Key,
@@ -20,7 +20,6 @@ from container import (
     ResolveContext,
     Scope,
 )
-
 from .nested import NestedRules
 from .policy import OrderPolicy
 
