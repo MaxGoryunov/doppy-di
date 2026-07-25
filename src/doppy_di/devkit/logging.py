@@ -1,7 +1,7 @@
 """Logging layer for container access.
 
 Example:
-    >>> from container import ContainerBuilder
+    >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("x", 1)
     >>> base = builder.build()
@@ -23,7 +23,7 @@ class LoggingContainer:
         >>> events = []
         >>> def log(msg):
         ...     events.append(msg)
-        >>> from container import ContainerBuilder
+        >>> from doppy_di.container import ContainerBuilder
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
         >>> base = builder.build()

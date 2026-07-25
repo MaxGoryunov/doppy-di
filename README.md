@@ -48,7 +48,7 @@ Requires Python 3.10 or later.
 ### Basic usage
 
 ```python
-from container import ContainerBuilder
+from doppy_di.container import ContainerBuilder
 
 builder = ContainerBuilder()
 
@@ -154,7 +154,7 @@ except ContainerBuildError as e:
 Control behaviour on duplicate registration.
 
 ```python
-from container import DuplicateKeyPolicy
+from doppy_di.container import DuplicateKeyPolicy
 
 strict = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
 strict.service("x", lambda: 1)
@@ -170,22 +170,22 @@ warning.service("x", lambda: 2)  # logs warning, overwrites
 The `devkit` package provides optional extensions:
 
 ```python
-from devkit import LoggingContainer, ValidatingContainer
+from doppy_di.devkit import LoggingContainer, ValidatingContainer
 
 container = LoggingContainer(container)           # log all get operations
 container = ValidatingContainer(container)         # validate before resolving
 ```
 
 ```python
-from devkit.nested import NestedRules, SameValuePolicy
+from doppy_di.devkit.nested import NestedRules, SameValuePolicy
 
 nested = NestedRules()
 nested.add_rule("parent", "child", SameValuePolicy())
 ```
 
 ```python
-from devkit import ChildrenFirstPolicy, ParentFirstPolicy
-from devkit.policy import OrderPolicy
+from doppy_di.devkit import ChildrenFirstPolicy, ParentFirstPolicy
+from doppy_di.devkit.policy import OrderPolicy
 
 # control the order of nested field resolution
 policy = ChildrenFirstPolicy()

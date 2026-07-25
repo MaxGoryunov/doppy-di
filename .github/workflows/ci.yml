@@ -40,6 +40,18 @@ jobs:
       - name: Mypy strict
         run: uv run mypy
 
+      - name: Build wheel
+        run: uv build
+
+      - name: Verify PEP 561 compliance
+        run: |
+          pip install mypy dist/*.whl
+          echo "from doppy_di.container import Container; reveal_type(Container)" > /tmp/check_container.py
+          echo "from doppy_di.devkit import LoggingContainer; reveal_type(LoggingContainer)" > /tmp/check_devkit.py
+          python -m mypy --strict /tmp/check_container.py
+          python -m mypy --strict /tmp/check_devkit.py
+          pip uninstall -y doppy-di
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
