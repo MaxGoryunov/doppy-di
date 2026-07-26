@@ -1,13 +1,3 @@
-[![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://maxgoryunov.github.io/doppy-di/)
-
-## Documentation
-
-Full documentation is available at [maxgoryunov.github.io/doppy-di](https://maxgoryunov.github.io/doppy-di/).
-
-The documentation includes:
-- Installation guide
-- Usage examples
-- Auto-generated API reference from source code docstrings
 [![CI](https://github.com/MaxGoryunov/doppy-di/actions/workflows/ci.yml/badge.svg)](https://github.com/MaxGoryunov/doppy-di/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/MaxGoryunov/doppy-di/branch/main/graph/badge.svg)](https://codecov.io/gh/MaxGoryunov/doppy-di)
 [![Python >=3.10](https://img.shields.io/badge/python-%3E%3D3.10-blue)](https://www.python.org/)
@@ -15,6 +5,7 @@ The documentation includes:
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 [![Downloads](https://img.shields.io/pypi/dm/doppy-di)](https://pypi.org/project/doppy-di/)
+[![Docs](https://img.shields.io/badge/docs-mkdocs-blue)](https://maxgoryunov.github.io/doppy-di/)
 [![Dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)](https://pypi.org/project/doppy-di/)
 [![PEP 561](https://img.shields.io/badge/PEP%20561-typed-brightgreen)](https://peps.python.org/pep-0561/)
 [![async ready](https://img.shields.io/badge/async-ready-brightgreen)](https://docs.python.org/3/library/asyncio.html)
@@ -44,15 +35,6 @@ The documentation includes:
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/pulls)
 
 Minimal dependency injection container for Python. Provides immutable rule definitions, singleton/transient lifetimes, scoped caching, nested attribute resolution, cycle detection, and optional validation, logging, and ordering layers.
-
-## Documentation
-
-Full documentation is available at [maxgoryunov.github.io/doppy-di](https://maxgoryunov.github.io/doppy-di/).
-
-The documentation includes:
-- Installation guide
-- Usage examples
-- Auto-generated API reference from source code docstrings
 
 ## How to use it
 
@@ -209,6 +191,8 @@ from doppy_di.devkit.policy import OrderPolicy
 # control the order of nested field resolution
 policy = ChildrenFirstPolicy()
 ```
+
+Additional information can be found in [Documentation](https://maxgoryunov.github.io/doppy-di/).
 
 ## How to contribute
 
