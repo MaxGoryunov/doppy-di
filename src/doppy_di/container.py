@@ -36,7 +36,15 @@ logger = logging.getLogger("doppy_di.container")
 
 
 class KeyProtocol(Protocol):
-    """A protocol for custom hashable keys."""
+    """A protocol for custom hashable keys.
+
+    Example:
+        >>> class MyKey:
+        ...     def __hash__(self): return 1
+        ...     def __eq__(self, other): return isinstance(other, MyKey)
+        >>> isinstance(MyKey(), KeyProtocol)
+        True
+    """
 
     def __hash__(self) -> int: ...
 
@@ -52,6 +60,9 @@ class ServiceNotFoundError(KeyError):
 
     Example:
         >>> raise ServiceNotFoundError("missing")
+        Traceback (most recent call last):
+        ...
+        ServiceNotFoundError: Service not found: 'missing'
     """
 
     def __init__(self, key: Key) -> None:
@@ -64,6 +75,9 @@ class CycleError(Exception):
 
     Example:
         >>> raise CycleError(["a", "b", "a"])
+        Traceback (most recent call last):
+        ...
+        CycleError: Cycle detected: 'a' -> 'b' -> 'a'
     """
 
     def __init__(self, path: List[Key]) -> None:
@@ -76,6 +90,9 @@ class NestedRuleError(Exception):
 
     Example:
         >>> raise NestedRuleError("service", "db", "field mismatch")
+        Traceback (most recent call last):
+        ...
+        NestedRuleError: Nested rule error: 'service'.db - field mismatch
     """
 
     def __init__(self, parent: Key, child: str, reason: str) -> None:
@@ -90,6 +107,9 @@ class ContainerBuildError(Exception):
 
     Example:
         >>> raise ContainerBuildError([("a", "b"), ("c", "d")])
+        Traceback (most recent call last):
+        ...
+        ContainerBuildError: Missing dependencies: a -> b; c -> d
     """
 
     def __init__(self, missing: List[Tuple[Key, Key]]) -> None:
@@ -103,6 +123,9 @@ class DuplicateKeyError(KeyError):
 
     Example:
         >>> raise DuplicateKeyError("x")
+        Traceback (most recent call last):
+        ...
+        DuplicateKeyError: Duplicate key: 'x'
     """
 
     def __init__(self, key: Key) -> None:
@@ -116,6 +139,12 @@ class DuplicateKeyPolicy(Enum):
     OVERWRITE: replace existing rule (current default behavior).
     FAIL: raise DuplicateKeyError on duplicate.
     WARN: log a warning and overwrite.
+
+    Example:
+        >>> DuplicateKeyPolicy.FAIL.name
+        'FAIL'
+        >>> DuplicateKeyPolicy.OVERWRITE.value
+        'overwrite'
     """
 
     OVERWRITE = "overwrite"
@@ -130,6 +159,12 @@ class ScopePolicy(Enum):
     UNIQUE: return a fresh Scope per call, stored under a unique internal
             key so its cache never leaks across calls even if __exit__
             is forgotten.
+
+    Example:
+        >>> ScopePolicy.NAMED.value
+        'named'
+        >>> ScopePolicy.UNIQUE.name
+        'UNIQUE'
     """
 
     NAMED = "named"
@@ -146,6 +181,9 @@ class LifetimePolicy:
         >>> LifetimePolicy.validate("singleton")
         >>> LifetimePolicy.validate("transient")
         >>> LifetimePolicy.validate("per_request")  # raises ValueError
+        Traceback (most recent call last):
+        ...
+        ValueError: Unknown lifetime: 'per_request'
     """
 
     known: ClassVar[set[str]] = {"transient", "singleton"}
@@ -170,6 +208,8 @@ class Rule:
         >>> rule = Rule("answer", lambda: 42, "singleton", ())
         >>> rule.key
         'answer'
+        >>> rule.lifetime
+        'singleton'
     """
 
     key: Key
@@ -189,6 +229,8 @@ class RuleSet:
         >>> rules.add("x", Rule("x", lambda: 1))
         >>> rules.find("x").key
         'x'
+        >>> rules.has("x")
+        True
     """
 
     __slots__ = ("graph", "map")
@@ -207,6 +249,12 @@ class RuleSet:
 
         Raises:
             CycleError: If adding the rule creates a dependency cycle.
+
+        Example:
+            >>> rules = RuleSet()
+            >>> rules.add("a", Rule("a", lambda: 1, deps=("b",)))
+            >>> rules.has("a")
+            True
         """
         old_map = dict(self.map)
         old_graph = dict(self.graph)
@@ -224,6 +272,16 @@ class RuleSet:
 
         Raises:
             ServiceNotFoundError: If key is not registered.
+
+        Example:
+            >>> rules = RuleSet()
+            >>> rules.add("x", Rule("x", lambda: 1))
+            >>> rules.find("x")
+            Rule(key='x', make=..., lifetime='transient', deps=())
+            >>> rules.find("missing")  # doctest: +IGNORE_EXCEPTION_DETAIL
+            Traceback (most recent call last):
+            ...
+            ServiceNotFoundError
         """
         try:
             return self.map[key]
@@ -231,15 +289,39 @@ class RuleSet:
             raise ServiceNotFoundError(key) from None
 
     def has(self, key: Key) -> bool:
-        """Check whether a key is registered."""
+        """Check whether a key is registered.
+
+        Example:
+            >>> rules = RuleSet()
+            >>> rules.add("x", Rule("x", lambda: 1))
+            >>> rules.has("x")
+            True
+            >>> rules.has("y")
+            False
+        """
         return key in self.map
 
     def deps_of(self, key: Key) -> Tuple[Key, ...]:
-        """Return direct dependencies for a key."""
+        """Return direct dependencies for a key.
+
+        Example:
+            >>> rules = RuleSet()
+            >>> rules.add("a", Rule("a", lambda: 1, deps=("b", "c")))
+            >>> rules.deps_of("a")
+            ('b', 'c')
+        """
         return self.graph.get(key, ())
 
     def keys(self) -> Tuple[Key, ...]:
-        """Return registered keys."""
+        """Return registered keys.
+
+        Example:
+            >>> rules = RuleSet()
+            >>> rules.add("x", Rule("x", lambda: 1))
+            >>> rules.add("y", Rule("y", lambda: 2))
+            >>> sorted(rules.keys())
+            ['x', 'y']
+        """
         return tuple(self.map.keys())
 
     def _check_cycle(self, start: Key) -> None:
@@ -268,6 +350,8 @@ class RuleSet:
 class ResolveContext:
     """Resolution context used during object creation.
 
+    Provides access to the container and scope for dependency resolution.
+
     Example:
         >>> builder = ContainerBuilder()
         >>> builder.service("x", lambda: 1)
@@ -288,7 +372,9 @@ class ResolveContext:
         self.scope = scope or container
 
     def get(self, key: Key) -> Any:
-        return self.scope.get(key) if isinstance(self.scope, Scope) else self.container.get(key)
+        if isinstance(self.scope, Scope):
+            return self.scope.get(key)
+        return self.container.get(key)
 
 
 class OverrideContext:
@@ -315,6 +401,8 @@ class OverrideContext:
         >>> with c.override("x", 2):
         ...     c.get("x")
         2
+        >>> c.get("x")
+        1
     """
 
     __slots__ = ("container", "had_old", "key", "old", "value")
@@ -348,6 +436,9 @@ class OverrideContext:
 class Scope:
     """Scope-local cache over a container.
 
+    Scopes allow caching within a ``with`` block. All resolved values are
+    cached until the scope exits.
+
     Example:
         >>> builder = ContainerBuilder()
         >>> builder.service("x", lambda: object(), lifetime="transient")
@@ -369,7 +460,16 @@ class Scope:
         self._depth = 0
 
     def get(self, key: Key) -> Any:
-        """Resolve key from scope cache or underlying container."""
+        """Resolve key from scope cache or underlying container.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("x", 1)
+            >>> c = builder.build()
+            >>> with c.scope("s") as s:
+            ...     s.get("x")
+            1
+        """
         if key in self.cache:
             return self.cache[key]
         obj = self.container.get(key)
@@ -394,6 +494,8 @@ class Scope:
 class Container:
     """Runtime container with singleton cache.
 
+    Thread-safe singleton resolution with double-checked locking.
+
     Example:
         >>> builder = ContainerBuilder()
         >>> builder.service("answer", lambda: 42, lifetime="singleton")
@@ -417,6 +519,15 @@ class Container:
         Returns the cached singleton if already resolved, otherwise resolves
         the rule from the config, applies the scope policy, and stores the
         result for singleton lifetimes.
+
+        Double-checked locking provides thread safety.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.service("answer", lambda: 42)
+            >>> container = builder.build()
+            >>> container.get("answer")
+            42
         """
         if key in self.single:
             return self.single[key]
@@ -441,14 +552,24 @@ class Container:
 
     def _cache_nested_aliases(self, key: Key, obj: Any) -> None:
         for alias in self.config.ruleset.map:
-            if not isinstance(alias, tuple) or len(alias) != 2 or (alias[0] != key):
+            if not isinstance(alias, tuple) or len(alias) != 2 or alias[0] != key:
                 continue
             child = alias[1]
             if isinstance(child, str) and hasattr(obj, child):
                 self.single[alias] = getattr(obj, child)
 
     def has(self, key: Key) -> bool:
-        """Return True if a rule for key is registered."""
+        """Return True if a rule for key is registered.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.service("x", lambda: 1)
+            >>> c = builder.build()
+            >>> c.has("x")
+            True
+            >>> c.has("missing")
+            False
+        """
         return self.config.ruleset.has(key)
 
     def get_or_none(self, key: Key) -> Any:
@@ -466,7 +587,16 @@ class Container:
             return None
 
     def scope(self, name: str) -> Scope:
-        """Return a named or unique scope according to the active policy."""
+        """Return a named or unique scope according to the active policy.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("x", 1)
+            >>> c = builder.build()
+            >>> s = c.scope("req")
+            >>> isinstance(s, Scope)
+            True
+        """
         if self.scope_policy == ScopePolicy.NAMED:
             if name in self.scopes:
                 return self.scopes[name]
@@ -480,7 +610,16 @@ class Container:
         return scope
 
     def override(self, key: Key, value: Any) -> OverrideContext:
-        """Create a temporary override context for the given key."""
+        """Create a temporary override context for the given key.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("x", 1)
+            >>> c = builder.build()
+            >>> ctx = c.override("x", 2)
+            >>> isinstance(ctx, OverrideContext)
+            True
+        """
         return OverrideContext(self, key, value)
 
 
@@ -493,6 +632,8 @@ class ContainerConfig:
         >>> config = ContainerConfig(rules)
         >>> isinstance(config.ruleset, RuleSet)
         True
+        >>> config.scope_policy
+        <ScopePolicy.NAMED: 'named'>
     """
 
     ruleset: RuleSet
@@ -502,12 +643,16 @@ class ContainerConfig:
 class ContainerBuilder:
     """Builder for a container.
 
+    Provides methods to register services, values, and aliases, then
+    produce a ready-to-use Container.
+
     Example:
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
+        >>> builder.service("y", lambda x: x + 1, deps=["x"])
         >>> c = builder.build()
-        >>> c.get("x")
-        1
+        >>> c.get("y")
+        2
     """
 
     __slots__ = ("duplicate_policy", "rules", "scope_policy")
@@ -517,14 +662,22 @@ class ContainerBuilder:
         duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
         scope_policy: ScopePolicy = ScopePolicy.NAMED,
     ) -> None:
-        """Initialize builder with optional policies."""
+        """Initialize builder with optional policies.
+
+        Example:
+            >>> b = ContainerBuilder(
+            ...     DuplicateKeyPolicy.FAIL, ScopePolicy.UNIQUE
+            ... )
+            >>> b.duplicate_policy
+            <DuplicateKeyPolicy.FAIL: 'fail'>
+        """
         self.rules = RuleSet()
         self.duplicate_policy = duplicate_policy
         self.scope_policy = scope_policy
 
     def _register(self, key: Key, rule: Rule) -> None:
         """Add rule honoring the active duplicate policy."""
-        if key in self.rules.map and self.duplicate_policy != (DuplicateKeyPolicy.OVERWRITE):
+        if key in self.rules.map and (self.duplicate_policy != DuplicateKeyPolicy.OVERWRITE):
             if self.duplicate_policy == DuplicateKeyPolicy.FAIL:
                 raise DuplicateKeyError(key)
             # WARN
@@ -538,6 +691,16 @@ class ContainerBuilder:
         lifetime: Lifetime = "transient",
         deps: Optional[List[Key]] = None,
     ) -> None:
+        """Register a factory service.
+
+        Example:
+            >>> b = ContainerBuilder()
+            >>> b.service("greet", lambda name: f"Hello {name}", deps=["name"])
+            >>> b.value("name", "World")
+            >>> c = b.build()
+            >>> c.get("greet")
+            'Hello World'
+        """
         rule = Rule(
             key=key,
             make=make,
@@ -547,6 +710,16 @@ class ContainerBuilder:
         self._register(key, rule)
 
     def value(self, key: Key, value: Any) -> None:
+        """Register a constant value as a singleton.
+
+        Example:
+            >>> b = ContainerBuilder()
+            >>> b.value("pi", 3.14)
+            >>> c = b.build()
+            >>> c.get("pi")
+            3.14
+        """
+
         def make_value() -> Any:
             return value
 
@@ -561,6 +734,17 @@ class ContainerBuilder:
         )
 
     def alias(self, key: Key, target: Key) -> None:
+        """Register an alias pointing to another key.
+
+        Example:
+            >>> b = ContainerBuilder()
+            >>> b.value("x", 42)
+            >>> b.alias("answer", "x")
+            >>> c = b.build()
+            >>> c.get("answer")
+            42
+        """
+
         def make_alias(value: Any) -> Any:
             return value
 
@@ -575,6 +759,27 @@ class ContainerBuilder:
         )
 
     def build(self, validate: bool = False) -> Container:
+        """Build and return a Container.
+
+        Args:
+            validate: When True, raises ContainerBuildError if any
+                dependency key is not registered.
+
+        Example:
+            >>> b = ContainerBuilder()
+            >>> b.value("x", 1)
+            >>> c = b.build()
+            >>> c.get("x")
+            1
+
+        Example with validation:
+            >>> b = ContainerBuilder()
+            >>> b.service("a", lambda b: b, deps=["b"])
+            >>> b.build(validate=True)  # doctest: +IGNORE_EXCEPTION_DETAIL
+            Traceback (most recent call last):
+            ...
+            ContainerBuildError
+        """
         if validate:
             missing: List[Tuple[Key, Key]] = []
             for key, rule in self.rules.map.items():
