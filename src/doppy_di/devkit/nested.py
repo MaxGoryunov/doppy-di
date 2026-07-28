@@ -23,6 +23,10 @@ class NestedPolicy(Protocol):
 
     Implementations compare the resolved nested attribute against the object
     stored under the nested rule key.
+
+    Example:
+        >>> isinstance(SameObjectPolicy(), NestedPolicy)
+        True
     """
 
     def check(self, nested: Any, resolved: Any) -> bool:
@@ -38,6 +42,8 @@ class SameObjectPolicy:
         >>> obj = object()
         >>> policy.check(obj, obj)
         True
+        >>> policy.check(obj, object())
+        False
     """
 
     def check(self, nested: Any, resolved: Any) -> bool:
@@ -57,6 +63,8 @@ class SameValuePolicy:
         >>> policy = SameValuePolicy()
         >>> policy.check(1, 1)
         True
+        >>> policy.check(1, 2)
+        False
     """
 
     strict: bool = False
@@ -66,6 +74,11 @@ class SameValuePolicy:
 
         When ``strict`` is False, exceptions raised during comparison are
         logged and treated as inequality.
+
+        Example:
+            >>> policy = SameValuePolicy(strict=False)
+            >>> policy.check(1, 1)
+            True
         """
         try:
             return bool(nested == resolved)
@@ -89,6 +102,8 @@ class NestedEntry:
         >>> entry = NestedEntry("service", "repo")
         >>> entry.parent
         'service'
+        >>> entry.child
+        'repo'
     """
 
     parent: Key
@@ -101,7 +116,10 @@ class NestedRules:
     Example:
         >>> nested = NestedRules()
         >>> rule = Rule(("service", "repo"), lambda repo: repo)
-        >>> nested.add_nested("service", "repo", rule, RuleSet())
+        >>> rs = RuleSet()
+        >>> nested.add_nested("service", "repo", rule, rs)
+        >>> nested.children_of("service")
+        ['repo']
     """
 
     __slots__ = ("map", "same_policy")
@@ -115,6 +133,14 @@ class NestedRules:
 
         The nested key ``(parent, child)`` is added to the shared ruleset and
         tracked for validation.
+
+        Example:
+            >>> nested = NestedRules()
+            >>> rule = Rule(("db", "conn"), lambda: object())
+            >>> rs = RuleSet()
+            >>> nested.add_nested("db", "conn", rule, rs)
+            >>> rs.has(("db", "conn"))
+            True
         """
         nested_key = (parent, child)
         ruleset.add(nested_key, rule)
@@ -123,11 +149,25 @@ class NestedRules:
             self.map[parent].append(child)
 
     def children_of(self, parent: Key) -> List[str]:
-        """Return the registered nested child names for a parent."""
+        """Return the registered nested child names for a parent.
+
+        Example:
+            >>> nested = NestedRules()
+            >>> nested.add_nested(
+            ...     "s", "c", Rule(("s","c"), lambda: 1), RuleSet()
+            ... )
+            >>> nested.children_of("s")
+            ['c']
+        """
         return list(self.map.get(parent, []))
 
     def validate_nested(self, parent: Key, container: Container, parent_obj: Any = None) -> None:
-        """Validate nested rules for a resolved parent object."""
+        """Validate nested rules for a resolved parent object.
+
+        Example:
+            >>> nested = NestedRules()
+            >>> nested.validate_nested("missing", container)
+        """
         children = self.children_of(parent)
         if not children:
             return

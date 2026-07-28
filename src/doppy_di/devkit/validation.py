@@ -1,7 +1,7 @@
 """Validation layer for container resolution.
 
 Example:
-    >>> from container import ContainerBuilder
+    >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("x", 1)
     >>> container = builder.build()
@@ -25,7 +25,15 @@ from .policy import OrderPolicy
 
 
 class ValidationRule(Protocol):
-    """A validation rule executed after resolution."""
+    """A validation rule executed after resolution.
+
+    Example:
+        >>> class MyRule:
+        ...     def check(self, container, key, obj):
+        ...         assert obj is not None
+        >>> isinstance(MyRule(), ValidationRule)
+        True
+    """
 
     def check(self, container: Container, key: Key, obj: Any) -> None:
         """Validate resolved object."""
@@ -39,6 +47,9 @@ class ValidationRunner:
         >>> runner = ValidationRunner()
         >>> len(runner.rules)
         0
+        >>> runner.add(MyRule())
+        >>> len(runner.rules)
+        1
     """
 
     rules: tuple[ValidationRule, ...]
@@ -47,9 +58,23 @@ class ValidationRunner:
         object.__setattr__(self, "rules", tuple(rules or ()))
 
     def add(self, rule: ValidationRule) -> None:
+        """Append a validation rule.
+
+        Example:
+            >>> runner = ValidationRunner()
+            >>> runner.add(MyRule())
+            >>> len(runner.rules)
+            1
+        """
         object.__setattr__(self, "rules", (*self.rules, rule))
 
     def run(self, container: Container, key: Key, obj: Any) -> None:
+        """Execute all registered rules.
+
+        Example:
+            >>> runner = ValidationRunner()
+            >>> runner.run(container, "x", 42)
+        """
         for rule in self.rules:
             rule.check(container, key, obj)
 
@@ -57,8 +82,11 @@ class ValidationRunner:
 class ValidatingContainer:
     """Container view that applies order policy and validation.
 
+    Wraps a base Container with resolution ordering and optional
+    validation rules.
+
     Example:
-        >>> from container import ContainerBuilder
+        >>> from doppy_di.container import ContainerBuilder
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
         >>> base = builder.build()
@@ -86,6 +114,13 @@ class ValidatingContainer:
         self._resolving: set[Key] = set()
 
     def get(self, key: Key) -> Any:
+        """Resolve key with ordering and validation.
+
+        Example:
+            >>> wrapped = ValidatingContainer(base, UnorderedPolicy())
+            >>> wrapped.get("x")
+            1
+        """
         if key in self._resolving:
             raise CycleError([key])
         self._resolving.add(key)
@@ -107,10 +142,30 @@ class ValidatingContainer:
             self._resolving.remove(key)
 
     def has(self, key: Key) -> bool:
+        """Check if key is registered.
+
+        Example:
+            >>> wrapped.has("x")
+            True
+        """
         return self.wrapped.has(key)
 
     def scope(self, name: str) -> Scope:
+        """Return a scope from the wrapped container.
+
+        Example:
+            >>> s = wrapped.scope("req")
+            >>> isinstance(s, Scope)
+            True
+        """
         return self.wrapped.scope(name)
 
     def override(self, key: Key, value: Any) -> OverrideContext:
+        """Override a value in the wrapped container.
+
+        Example:
+            >>> with wrapped.override("x", 2):
+            ...     wrapped.get("x")
+            2
+        """
         return self.wrapped.override(key, value)
