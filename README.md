@@ -30,7 +30,7 @@
 
 
 [![Hits-of-Code](https://hitsofcode.com/github/MaxGoryunov/doppy-di?branch=main&exclude=.gitignore,uv.lock)](https://hitsofcode.com/github/MaxGoryunov/doppy-di/view?branch=main&exclude=.gitignore,uv.lock)
-[![LoC](https://MaxGoryunov.github.io/doppy-di/badge/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
+[![LoC](https://MaxGoryunov.github.io/doppy-di/badge.svg)](https://github.com/MaxGoryunov/doppy-di)
 [![GitHub issues](https://img.shields.io/github/issues/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/pulls)
 
