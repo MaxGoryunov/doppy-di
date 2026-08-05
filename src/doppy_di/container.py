@@ -18,7 +18,7 @@ import threading
 import uuid
 from dataclasses import dataclass
 from enum import Enum
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import (
     Any,
     Callable,
@@ -539,9 +539,22 @@ class Container:
             try:
                 rule = self.config.ruleset.find(key)
             except ServiceNotFoundError:
-                raise
+                if isinstance(key, type) and getattr(key, "__doppy_injectable__", False):
+                    from .auto_wiring import _rule_for
+
+                    self.config.ruleset.add(key, _rule_for(key))
+                    rule = self.config.ruleset.find(key)
+                else:
+                    raise
             ctx = ResolveContext(self)
-            args = [ctx.get(dep) for dep in rule.deps]
+            try:
+                args = [ctx.get(dep) for dep in rule.deps]
+            except ServiceNotFoundError as exc:
+                if isinstance(key, type) and getattr(key, "__doppy_injectable__", False):
+                    from .auto_wiring import UnresolvableDependencyError
+
+                    raise UnresolvableDependencyError(key, exc.key) from None
+                raise
             obj = rule.make(*args)
 
             if rule.lifetime == "singleton":
@@ -557,6 +570,25 @@ class Container:
             child = alias[1]
             if isinstance(child, str) and hasattr(obj, child):
                 self.single[alias] = getattr(obj, child)
+
+    def scan(
+        self,
+        *packages: Union[ModuleType, str],
+        recursive: bool = True,
+    ) -> None:
+        """Register all injectable classes found in the given packages.
+
+        Explicitly registered rules are never overridden.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> container = builder.build()
+            >>> container.scan(__name__)
+        """
+        from .auto_wiring import scan_package
+
+        for pkg in packages:
+            scan_package(self, pkg, recursive)
 
     def has(self, key: Key) -> bool:
         """Return True if a rule for key is registered.
