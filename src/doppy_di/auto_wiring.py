@@ -111,8 +111,6 @@ def _deps_of(cls: type) -> Tuple[type, ...]:
     sig = inspect.signature(cls)
     deps: list[type] = []
     for name, param in sig.parameters.items():
-        if name == "self":
-            continue
         if param.default is not inspect.Parameter.empty:
             continue
         if param.annotation is inspect.Parameter.empty:
