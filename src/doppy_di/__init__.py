@@ -1,5 +1,10 @@
 """doppy-di: minimal dependency injection container."""
 
+from .auto_wiring import (
+    MissingAnnotationError,
+    UnresolvableDependencyError,
+    injectable,
+)
 from .container import (
     Container,
     ContainerBuilder,
@@ -47,6 +52,7 @@ __all__ = [
     "Lifetime",
     "LifetimePolicy",
     "LoggingContainer",
+    "MissingAnnotationError",
     "NestedPolicy",
     "NestedRules",
     "OrderPolicy",
@@ -61,7 +67,9 @@ __all__ = [
     "ScopePolicy",
     "ServiceNotFoundError",
     "UnorderedPolicy",
+    "UnresolvableDependencyError",
     "ValidatingContainer",
     "ValidationRule",
     "ValidationRunner",
+    "injectable",
 ]
