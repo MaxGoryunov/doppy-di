@@ -13,9 +13,16 @@ Example:
 
 from __future__ import annotations
 
+import inspect
 import logging
 import threading
 import uuid
+from contextlib import (
+    AsyncExitStack,
+    ExitStack,
+    asynccontextmanager,
+    contextmanager,
+)
 from dataclasses import dataclass
 from enum import Enum
 from types import ModuleType, TracebackType
@@ -83,6 +90,21 @@ class CycleError(Exception):
     def __init__(self, path: List[Key]) -> None:
         self.path = tuple(path)
         super().__init__(f"Cycle detected: {' -> '.join(map(repr, path))}")
+
+
+class YieldNotCalledError(Exception):
+    """Raised when a yield provider generator does not yield.
+
+    Example:
+        >>> raise YieldNotCalledError("session")
+        Traceback (most recent call last):
+        ...
+        YieldNotCalledError: Yield provider 'session' did not yield a value
+    """
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Yield provider {key!r} did not yield a value")
 
 
 class NestedRuleError(Exception):
@@ -216,9 +238,15 @@ class Rule:
     make: Callable[..., Any]
     lifetime: Lifetime = "transient"
     deps: Tuple[Key, ...] = ()
+    yield_provider: bool = False
+    async_yield_provider: bool = False
 
     def __post_init__(self) -> None:
         LifetimePolicy.validate(self.lifetime)
+        if inspect.isasyncgenfunction(self.make):
+            object.__setattr__(self, "async_yield_provider", True)
+        elif inspect.isgeneratorfunction(self.make):
+            object.__setattr__(self, "yield_provider", True)
 
 
 class RuleSet:
@@ -450,13 +478,22 @@ class Scope:
         True
     """
 
-    __slots__ = ("_depth", "cache", "container", "name")
+    __slots__ = (
+        "_async_exit_stack",
+        "_depth",
+        "_exit_stack",
+        "cache",
+        "container",
+        "name",
+    )
 
     def __init__(self, container: Container, name: str) -> None:
         """Create a named scope with an empty local cache."""
         self.container = container
         self.name = name
         self.cache: Dict[Key, Any] = {}
+        self._exit_stack: List[ExitStack] = []
+        self._async_exit_stack: List[AsyncExitStack] = []
         self._depth = 0
 
     def get(self, key: Key) -> Any:
@@ -472,6 +509,18 @@ class Scope:
         """
         if key in self.cache:
             return self.cache[key]
+        rule = self.container.config.ruleset.find(key)
+        if rule.yield_provider:
+            stack = ExitStack()
+            try:
+                obj = stack.enter_context(contextmanager(rule.make)())
+            except RuntimeError as exc:
+                if "didn't yield" in str(exc):
+                    raise YieldNotCalledError(key) from None
+                raise
+            self._exit_stack.append(stack)
+            self.cache[key] = obj
+            return obj
         obj = self.container.get(key)
         self.cache[key] = obj
         return obj
@@ -489,6 +538,70 @@ class Scope:
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
+            for stack in self._exit_stack:
+                try:
+                    stack.close()
+                except Exception:
+                    logger.exception("Error finalizing yield provider")
+            self._exit_stack.clear()
+
+
+class AsyncScope(Scope):
+    """Async scope-local cache with async yield provider support.
+
+    Example:
+        >>> builder = ContainerBuilder()
+        >>> builder.value("x", 1)
+        >>> c = builder.build()
+        >>> async def main():
+        ...     async with c.ascope("s") as s:
+        ...         return await s.get("x")
+        >>> import asyncio
+        >>> asyncio.run(main())
+        1
+    """
+
+    async def get(self, key: Key) -> Any:
+        """Resolve key from scope cache or underlying container."""
+        if key in self.cache:
+            return self.cache[key]
+        rule = self.container.config.ruleset.find(key)
+        if rule.async_yield_provider:
+            stack = AsyncExitStack()
+            try:
+                obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
+            except RuntimeError as exc:
+                if "didn't yield" in str(exc):
+                    raise YieldNotCalledError(key) from None
+                raise
+            self._async_exit_stack.append(stack)
+            self.cache[key] = obj
+            return obj
+        if rule.yield_provider:
+            raise TypeError(f"Sync yield provider {key!r} cannot be resolved in async scope")
+        obj = self.container.get(key)
+        self.cache[key] = obj
+        return obj
+
+    async def __aenter__(self) -> AsyncScope:
+        self._depth += 1
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc_val: Optional[BaseException],
+        exc_tb: Optional[TracebackType],
+    ) -> None:
+        self._depth -= 1
+        if self._depth == 0:
+            self.cache.clear()
+            for stack in self._async_exit_stack:
+                try:
+                    await stack.aclose()
+                except Exception:
+                    logger.exception("Error finalizing yield provider")
+            self._async_exit_stack.clear()
 
 
 class Container:
@@ -546,6 +659,8 @@ class Container:
                     rule = self.config.ruleset.find(key)
                 else:
                     raise
+            if rule.async_yield_provider:
+                raise TypeError(f"Async yield provider {key!r} requires async scope")
             ctx = ResolveContext(self)
             try:
                 args = [ctx.get(dep) for dep in rule.deps]
@@ -638,6 +753,32 @@ class Container:
         # UNIQUE: fresh Scope per call, stored under unique internal key
         internal = f"{name}#{uuid.uuid4().hex}"
         scope = Scope(self, name)
+        self.scopes[internal] = scope
+        return scope
+
+    def ascope(self, name: str) -> AsyncScope:
+        """Return a named or unique async scope.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("x", 1)
+            >>> c = builder.build()
+            >>> s = c.ascope("req")
+            >>> isinstance(s, AsyncScope)
+            True
+        """
+        if self.scope_policy == ScopePolicy.NAMED:
+            if name in self.scopes:
+                existing = self.scopes[name]
+                if isinstance(existing, AsyncScope):
+                    return existing
+                raise TypeError(f"Scope {name!r} already exists as sync scope")
+            scope = AsyncScope(self, name)
+            self.scopes[name] = scope
+            return scope
+        # UNIQUE: fresh Scope per call, stored under unique internal key
+        internal = f"{name}#{uuid.uuid4().hex}"
+        scope = AsyncScope(self, name)
         self.scopes[internal] = scope
         return scope
 

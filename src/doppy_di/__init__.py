@@ -6,6 +6,7 @@ from .auto_wiring import (
     injectable,
 )
 from .container import (
+    AsyncScope,
     Container,
     ContainerBuilder,
     ContainerConfig,
@@ -23,6 +24,7 @@ from .container import (
     Scope,
     ScopePolicy,
     ServiceNotFoundError,
+    YieldNotCalledError,
 )
 from .devkit import (
     ChildrenFirstPolicy,
@@ -40,6 +42,7 @@ from .devkit import (
 )
 
 __all__ = [
+    "AsyncScope",
     "ChildrenFirstPolicy",
     "Container",
     "ContainerBuilder",
@@ -71,5 +74,6 @@ __all__ = [
     "ValidatingContainer",
     "ValidationRule",
     "ValidationRunner",
+    "YieldNotCalledError",
     "injectable",
 ]
