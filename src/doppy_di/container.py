@@ -140,6 +140,64 @@ class ContainerBuildError(Exception):
         super().__init__(f"Missing dependencies: {msg}")
 
 
+class ValidationError(Exception):
+    """Base class for static graph validation errors.
+
+    Example:
+        >>> raise ValidationError("bad graph")
+        Traceback (most recent call last):
+        ...
+        ValidationError: bad graph
+    """
+
+
+class UnregisteredDependencyError(ValidationError):
+    """Raised when a rule depends on an unregistered key.
+
+    Example:
+        >>> raise UnregisteredDependencyError("a", "b")
+        Traceback (most recent call last):
+        ...
+        UnregisteredDependencyError: Unregistered dependency: 'a' -> 'b'
+    """
+
+    def __init__(self, key: Key, dependency: Key) -> None:
+        self.key = key
+        self.dependency = dependency
+        super().__init__(f"Unregistered dependency: {key!r} -> {dependency!r}")
+
+
+class CyclicDependencyError(ValidationError):
+    """Raised when the rule graph contains a dependency cycle.
+
+    Example:
+        >>> raise CyclicDependencyError(["a", "b", "a"])
+        Traceback (most recent call last):
+        ...
+        CyclicDependencyError: Cycle detected: 'a' -> 'b' -> 'a'
+    """
+
+    def __init__(self, path: List[Key]) -> None:
+        self.path = tuple(path)
+        super().__init__(f"Cycle detected: {' -> '.join(map(repr, path))}")
+
+
+class InvalidFactoryError(ValidationError):
+    """Raised when a factory is incompatible with its declared deps.
+
+    Example:
+        >>> raise InvalidFactoryError("a", "arity mismatch")
+        Traceback (most recent call last):
+        ...
+        InvalidFactoryError: Invalid factory for 'a': arity mismatch
+    """
+
+    def __init__(self, key: Key, reason: str) -> None:
+        self.key = key
+        self.reason = reason
+        super().__init__(f"Invalid factory for {key!r}: {reason}")
+
+
 class DuplicateKeyError(KeyError):
     """Raised when a duplicate key is registered under the FAIL policy.
 
@@ -794,6 +852,87 @@ class Container:
             True
         """
         return OverrideContext(self, key, value)
+
+    def validate(
+        self,
+        strict: bool = True,
+    ) -> Optional[List[ValidationError]]:
+        """Validate the whole dependency graph statically.
+
+        Checks every registered rule for missing dependencies, dependency
+        cycles, and factory arity mismatches. Validation is explicit and
+        never runs automatically, so there is zero overhead unless called.
+
+        Args:
+            strict: When True, raise ValidationError on the first error.
+                When False, collect all errors and return them as a list.
+
+        Returns:
+            None when strict=True and the graph is valid.
+            List of ValidationError when strict=False.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("x", 1)
+            >>> c = builder.build()
+            >>> c.validate() is None
+            True
+        """
+        errors: List[ValidationError] = []
+        ruleset = self.config.ruleset
+
+        for key, rule in ruleset.map.items():
+            for dep in rule.deps:
+                if dep not in ruleset.map:
+                    errors.append(UnregisteredDependencyError(key, dep))
+
+            try:
+                sig = inspect.signature(rule.make)
+            except (TypeError, ValueError):
+                sig = None
+            if sig is not None:
+                positional = [
+                    p
+                    for p in sig.parameters.values()
+                    if p.kind
+                    in (
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    )
+                ]
+                required = sum(1 for p in positional if p.default is inspect.Parameter.empty)
+                total = len(positional)
+                has_varargs = any(
+                    p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
+                )
+                if len(rule.deps) < required:
+                    errors.append(
+                        InvalidFactoryError(
+                            key,
+                            f"factory requires at least {required} args "
+                            f"but only {len(rule.deps)} deps declared",
+                        )
+                    )
+                elif len(rule.deps) > total and not has_varargs:
+                    errors.append(
+                        InvalidFactoryError(
+                            key,
+                            f"factory accepts at most {total} args "
+                            f"but {len(rule.deps)} deps declared",
+                        )
+                    )
+
+        for key in ruleset.map:
+            try:
+                ruleset._check_cycle(key)
+            except CycleError as exc:
+                errors.append(CyclicDependencyError(list(exc.path)))
+
+        if strict:
+            if errors:
+                raise errors[0]
+            return None
+        return errors
 
 
 @dataclass(frozen=True)
