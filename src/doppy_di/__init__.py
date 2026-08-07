@@ -44,6 +44,7 @@ from .devkit import (
     ValidationRule,
     ValidationRunner,
 )
+from .inject import Depends, inject
 
 __all__ = [
     "AsyncScope",
@@ -53,6 +54,7 @@ __all__ = [
     "ContainerConfig",
     "CycleError",
     "CyclicDependencyError",
+    "Depends",
     "DuplicateKeyError",
     "DuplicateKeyPolicy",
     "InvalidFactoryError",
@@ -83,5 +85,6 @@ __all__ = [
     "ValidationRule",
     "ValidationRunner",
     "YieldNotCalledError",
+    "inject",
     "injectable",
 ]
