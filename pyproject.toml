@@ -66,6 +66,7 @@ python_version = "3.10"
 strict = true
 warn_unreachable = true
 files = ["src/doppy_di"]
+mypy_path = "src"
 exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/']
 
 [[tool.mypy.overrides]]
