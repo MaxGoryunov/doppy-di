@@ -224,10 +224,10 @@ def test_inject_async_unannotated_passed_explicitly(container: Any) -> None:
     explicit = UserService()
 
     @inject(container=container)
-    async def handle(  # type: ignore[no-untyped-def]
-        service,
+    async def handle(
+        service: UserService,
     ) -> UserService:
-        return service  # type: ignore[no-any-return]
+        return service
 
     result = asyncio.run(handle(explicit))
     assert result is explicit
