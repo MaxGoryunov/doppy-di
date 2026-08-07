@@ -77,6 +77,21 @@ class ServiceNotFoundError(KeyError):
         super().__init__(f"Service not found: {key!r}")
 
 
+class UnregisteredTypeError(KeyError):
+    """Raised when an override targets an unregistered key.
+
+    Example:
+        >>> raise UnregisteredTypeError("missing")
+        Traceback (most recent call last):
+        ...
+        UnregisteredTypeError: Unregistered type: 'missing'
+    """
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Unregistered type: {key!r}")
+
+
 class CycleError(Exception):
     """Raised when the rule graph contains a dependency cycle.
 
@@ -501,6 +516,8 @@ class OverrideContext:
         self.had_old = False
 
     def __enter__(self) -> OverrideContext:
+        if self.key not in self.container.config.ruleset.map:
+            raise UnregisteredTypeError(self.key)
         if self.key in self.container.single:
             self.old = self.container.single[self.key]
             self.had_old = True

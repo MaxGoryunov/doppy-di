@@ -27,6 +27,7 @@ from .container import (
     ScopePolicy,
     ServiceNotFoundError,
     UnregisteredDependencyError,
+    UnregisteredTypeError,
     ValidationError,
     YieldNotCalledError,
 )
@@ -79,6 +80,7 @@ __all__ = [
     "ServiceNotFoundError",
     "UnorderedPolicy",
     "UnregisteredDependencyError",
+    "UnregisteredTypeError",
     "UnresolvableDependencyError",
     "ValidatingContainer",
     "ValidationError",
