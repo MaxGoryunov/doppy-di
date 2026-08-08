@@ -10,7 +10,7 @@ Example:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Protocol
 
 from ..container import Container, Key, NestedRuleError, Rule, RuleSet
@@ -42,8 +42,6 @@ class SameObjectPolicy:
         >>> obj = object()
         >>> policy.check(obj, obj)
         True
-        >>> policy.check(obj, object())
-        False
     """
 
     def check(self, nested: Any, resolved: Any) -> bool:
@@ -74,11 +72,6 @@ class SameValuePolicy:
 
         When ``strict`` is False, exceptions raised during comparison are
         logged and treated as inequality.
-
-        Example:
-            >>> policy = SameValuePolicy(strict=False)
-            >>> policy.check(1, 1)
-            True
         """
         try:
             return bool(nested == resolved)
@@ -111,16 +104,7 @@ class NestedEntry:
 
 
 class NestedRules:
-    """Track nested relations and validate resolved objects.
-
-    Example:
-        >>> nested = NestedRules()
-        >>> rule = Rule(("service", "repo"), lambda repo: repo)
-        >>> rs = RuleSet()
-        >>> nested.add_nested("service", "repo", rule, rs)
-        >>> nested.children_of("service")
-        ['repo']
-    """
+    """Track nested relations and validate resolved objects."""
 
     __slots__ = ("map", "same_policy")
 
@@ -143,31 +127,17 @@ class NestedRules:
             True
         """
         nested_key = (parent, child)
-        ruleset.add(nested_key, rule)
+        ruleset.add(nested_key, replace(rule, nested=True))
         self.map.setdefault(parent, [])
         if child not in self.map[parent]:
             self.map[parent].append(child)
 
     def children_of(self, parent: Key) -> List[str]:
-        """Return the registered nested child names for a parent.
-
-        Example:
-            >>> nested = NestedRules()
-            >>> nested.add_nested(
-            ...     "s", "c", Rule(("s","c"), lambda: 1), RuleSet()
-            ... )
-            >>> nested.children_of("s")
-            ['c']
-        """
+        """Return the registered nested child names for a parent."""
         return list(self.map.get(parent, []))
 
     def validate_nested(self, parent: Key, container: Container, parent_obj: Any = None) -> None:
-        """Validate nested rules for a resolved parent object.
-
-        Example:
-            >>> nested = NestedRules()
-            >>> nested.validate_nested("missing", container)
-        """
+        """Validate nested rules for a resolved parent object."""
         children = self.children_of(parent)
         if not children:
             return

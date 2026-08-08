@@ -59,8 +59,20 @@ class KeyProtocol(Protocol):
     def __eq__(self, other: object) -> bool: ...
 
 
-Key = Union[str, type, KeyProtocol]
+Key = Union[str, type, KeyProtocol, Tuple[Any, str]]
 Lifetime = str
+
+
+@dataclass(frozen=True)
+class Qualifier:
+    """Marker for named dependencies via ``typing.Annotated``.
+
+    Example:
+        >>> Qualifier("read")
+        Qualifier(name='read')
+    """
+
+    name: str
 
 
 class ServiceNotFoundError(KeyError):
@@ -314,6 +326,7 @@ class Rule:
     deps: Tuple[Key, ...] = ()
     yield_provider: bool = False
     async_yield_provider: bool = False
+    nested: bool = False
 
     def __post_init__(self) -> None:
         LifetimePolicy.validate(self.lifetime)
@@ -702,7 +715,7 @@ class Container:
         self.scope_policy: ScopePolicy = config.scope_policy
         self.lock = threading.RLock()
 
-    def get(self, key: Key) -> Any:
+    def get(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Resolve a service by key.
 
         Returns the cached singleton if already resolved, otherwise resolves
@@ -711,6 +724,11 @@ class Container:
 
         Double-checked locking provides thread safety.
 
+        Args:
+            key: Service key.
+            qualifier: Optional named qualifier. When given, resolves the
+                rule registered as ``(key, qualifier)``.
+
         Example:
             >>> builder = ContainerBuilder()
             >>> builder.service("answer", lambda: 42)
@@ -718,56 +736,75 @@ class Container:
             >>> container.get("answer")
             42
         """
-        if key in self.single:
-            return self.single[key]
+        lookup = (key, qualifier) if qualifier is not None else key
+        if lookup in self.single:
+            return self.single[lookup]
 
         with self.lock:
-            if key in self.single:
-                return self.single[key]
+            if lookup in self.single:
+                return self.single[lookup]
 
             try:
-                rule = self.config.ruleset.find(key)
+                rule = self.config.ruleset.find(lookup)
             except ServiceNotFoundError:
-                if isinstance(key, type) and getattr(key, "__doppy_injectable__", False):
+                if self._is_injectable_key(lookup):
                     from .auto_wiring import _rule_for
 
-                    self.config.ruleset.add(key, _rule_for(key))
-                    rule = self.config.ruleset.find(key)
+                    self.config.ruleset.add(lookup, _rule_for(lookup))
+                    rule = self.config.ruleset.find(lookup)
+                elif qualifier is not None:
+                    raise UnregisteredDependencyError(key, qualifier) from None
                 else:
                     raise
             if rule.async_yield_provider:
-                raise TypeError(f"Async yield provider {key!r} requires async scope")
+                raise TypeError(f"Async yield provider {lookup!r} requires async scope")
             ctx = ResolveContext(self)
             try:
                 args = [ctx.get(dep) for dep in rule.deps]
             except ServiceNotFoundError as exc:
-                if isinstance(key, type) and getattr(key, "__doppy_injectable__", False):
+                if self._is_injectable_key(lookup):
                     from .auto_wiring import UnresolvableDependencyError
 
-                    raise UnresolvableDependencyError(key, exc.key) from None
+                    raise UnresolvableDependencyError(lookup, exc.key) from None
                 raise
             obj = rule.make(*args)
 
             if rule.lifetime == "singleton":
-                self.single[key] = obj
-            self._cache_nested_aliases(key, obj)
+                self.single[lookup] = obj
+            self._cache_nested_aliases(lookup, obj)
 
             return obj
 
+    @staticmethod
+    def _is_injectable_key(key: Key) -> bool:
+        """Return True when key is an injectable type or qualified type."""
+        if isinstance(key, type):
+            return bool(getattr(key, "__doppy_injectable__", False))
+        if isinstance(key, tuple) and len(key) == 2 and isinstance(key[0], type):
+            return bool(getattr(key[0], "__doppy_injectable__", False))
+        return False
+
     def _cache_nested_aliases(self, key: Key, obj: Any) -> None:
-        for alias in self.config.ruleset.map:
+        for alias, rule in self.config.ruleset.map.items():
+            if not rule.nested:
+                continue
             if not isinstance(alias, tuple) or len(alias) != 2 or alias[0] != key:
                 continue
             child = alias[1]
             if isinstance(child, str) and hasattr(obj, child):
                 self.single[alias] = getattr(obj, child)
 
-    async def aget(self, key: Key) -> Any:
+    async def aget(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Resolve a service by key asynchronously.
 
         Resolves dependencies concurrently with ``asyncio.gather`` and awaits
         async factories. Sync factories are called directly, so there is no
         overhead for sync dependencies. Singleton results are cached.
+
+        Args:
+            key: Service key.
+            qualifier: Optional named qualifier. When given, the rule
+                registered as ``(key, qualifier)`` is resolved.
 
         Example:
             >>> builder = ContainerBuilder()
@@ -779,29 +816,32 @@ class Container:
             >>> asyncio.run(main())
             42
         """
-        if key in self.single:
-            return self.single[key]
+        lookup = (key, qualifier) if qualifier is not None else key
+        if lookup in self.single:
+            return self.single[lookup]
 
         try:
-            rule = self.config.ruleset.find(key)
+            rule = self.config.ruleset.find(lookup)
         except ServiceNotFoundError:
-            if isinstance(key, type) and getattr(key, "__doppy_injectable__", False):
+            if self._is_injectable_key(lookup):
                 from .auto_wiring import _rule_for
 
-                self.config.ruleset.add(key, _rule_for(key))
-                rule = self.config.ruleset.find(key)
+                self.config.ruleset.add(lookup, _rule_for(lookup))
+                rule = self.config.ruleset.find(lookup)
+            elif qualifier is not None:
+                raise UnregisteredDependencyError(key, qualifier) from None
             else:
                 raise
         if rule.async_yield_provider:
-            raise TypeError(f"Async yield provider {key!r} requires async scope")
+            raise TypeError(f"Async yield provider {lookup!r} requires async scope")
         args = await asyncio.gather(*(self.aget(dep) for dep in rule.deps))
         obj = rule.make(*args)
         if inspect.isawaitable(obj):
             obj = await obj
 
         if rule.lifetime == "singleton":
-            self.single[key] = obj
-        self._cache_nested_aliases(key, obj)
+            self.single[lookup] = obj
+        self._cache_nested_aliases(lookup, obj)
 
         return obj
 
@@ -904,8 +944,12 @@ class Container:
         for pkg in packages:
             scan_package(self, pkg, recursive)
 
-    def has(self, key: Key) -> bool:
+    def has(self, key: Key, qualifier: Optional[str] = None) -> bool:
         """Return True if a rule for key is registered.
+
+        Args:
+            key: Service key.
+            qualifier: Optional named qualifier.
 
         Example:
             >>> builder = ContainerBuilder()
@@ -916,10 +960,15 @@ class Container:
             >>> c.has("missing")
             False
         """
-        return self.config.ruleset.has(key)
+        lookup = (key, qualifier) if qualifier is not None else key
+        return self.config.ruleset.has(lookup)
 
-    def get_or_none(self, key: Key) -> Any:
+    def get_or_none(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Return resolved service or ``None`` if key not registered.
+
+        Args:
+            key: Service key.
+            qualifier: Optional named qualifier.
 
         Example:
             >>> builder = ContainerBuilder()
@@ -928,8 +977,8 @@ class Container:
             True
         """
         try:
-            return self.get(key)
-        except ServiceNotFoundError:
+            return self.get(key, qualifier=qualifier)
+        except (ServiceNotFoundError, UnregisteredDependencyError):
             return None
 
     def scope(self, name: str) -> Scope:
@@ -1143,8 +1192,17 @@ class ContainerBuilder:
         make: Callable[..., Any],
         lifetime: Lifetime = "transient",
         deps: Optional[List[Key]] = None,
+        qualifier: Optional[str] = None,
     ) -> None:
         """Register a factory service.
+
+        Args:
+            key: Registration key.
+            make: Factory callable.
+            lifetime: Service lifetime.
+            deps: Dependency keys.
+            qualifier: Optional named qualifier. When given, the rule is
+                stored under the key ``(key, qualifier)``.
 
         Example:
             >>> b = ContainerBuilder()
@@ -1154,13 +1212,14 @@ class ContainerBuilder:
             >>> c.get("greet")
             'Hello World'
         """
+        lookup = (key, qualifier) if qualifier is not None else key
         rule = Rule(
-            key=key,
+            key=lookup,
             make=make,
             lifetime=lifetime,
             deps=tuple(deps or ()),
         )
-        self._register(key, rule)
+        self._register(lookup, rule)
 
     def value(self, key: Key, value: Any) -> None:
         """Register a constant value as a singleton.
