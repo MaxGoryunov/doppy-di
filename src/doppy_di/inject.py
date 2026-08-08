@@ -19,10 +19,10 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from typing import Any, Callable, Optional, Protocol, Type, Union
+from typing import Any, Callable, Optional, Protocol, Type, Union, cast, get_args, get_origin
 
 from .auto_wiring import MissingAnnotationError, UnresolvableDependencyError
-from .container import Container, Key
+from .container import Container, Key, Qualifier
 
 
 class _Resolver(Protocol):
@@ -71,6 +71,15 @@ _Plan = tuple[
     set[str],
     set[str],
 ]
+
+
+def _annotation_key(annotation: Any) -> Any:
+    """Convert an annotation into a container lookup key."""
+    if get_origin(annotation) is not None and hasattr(annotation, "__metadata__"):
+        for meta in getattr(annotation, "__metadata__", ()):
+            if isinstance(meta, Qualifier):
+                return cast(Key, (get_args(annotation)[0], meta.name))
+    return annotation
 
 
 def _build_plan(func: Callable[..., Any]) -> _Plan:
@@ -137,7 +146,7 @@ def _resolve_all(
                 if annotation is None:
                     raise MissingAnnotationError(type(func), name)
                 try:
-                    resolved[name] = resolver.get(annotation)
+                    resolved[name] = resolver.get(_annotation_key(annotation))
                 except Exception as exc:
                     raise UnresolvableDependencyError(type(func), annotation) from exc
             elif isinstance(dep, type):
@@ -152,7 +161,7 @@ def _resolve_all(
             if annotation is None:
                 raise MissingAnnotationError(type(func), name)
             try:
-                resolved[name] = resolver.get(annotation)
+                resolved[name] = resolver.get(_annotation_key(annotation))
             except Exception as exc:
                 raise UnresolvableDependencyError(type(func), annotation) from exc
     return resolved
@@ -183,7 +192,7 @@ async def _resolve_all_async(
                 if annotation is None:
                     raise MissingAnnotationError(type(func), name)
                 try:
-                    resolved[name] = await resolver.get(annotation)
+                    resolved[name] = await resolver.get(_annotation_key(annotation))
                 except Exception as exc:
                     raise UnresolvableDependencyError(type(func), annotation) from exc
             elif isinstance(dep, type):
@@ -198,7 +207,7 @@ async def _resolve_all_async(
             if annotation is None:
                 raise MissingAnnotationError(type(func), name)
             try:
-                resolved[name] = await resolver.get(annotation)
+                resolved[name] = await resolver.get(_annotation_key(annotation))
             except Exception as exc:
                 raise UnresolvableDependencyError(type(func), annotation) from exc
     return resolved

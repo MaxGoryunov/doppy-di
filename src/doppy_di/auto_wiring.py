@@ -1,7 +1,7 @@
 """Type-based auto-wiring support.
 
-Provides the ``@injectable`` decorator and helpers used by
-``Container.scan()`` and lazy registration in ``Container.get()``.
+Provides the ``@injectable`` decorator and helpers used by ``Container.scan()``
+and lazy registration in ``Container.get()``.
 
 Example:
     >>> from doppy_di.container import ContainerBuilder
@@ -20,21 +20,13 @@ import importlib
 import inspect
 import pkgutil
 from types import ModuleType
-from typing import Any, Optional, Tuple, Type, Union
+from typing import Any, Optional, Tuple, Type, Union, get_args, get_origin
 
-from .container import Key, Rule
+from .container import Key, Qualifier, Rule
 
 
 class MissingAnnotationError(TypeError):
-    """Raised when an injectable class has an unannotated dependency.
-
-    Example:
-        >>> raise MissingAnnotationError(Service, "dep")
-        Traceback (most recent call last):
-        ...
-        MissingAnnotationError: Missing annotation for 'dep' in
-        <class '...Service'>
-    """
+    """Raised when an injectable class has an unannotated dependency."""
 
     def __init__(self, cls: type, param: str) -> None:
         self.cls = cls
@@ -43,15 +35,7 @@ class MissingAnnotationError(TypeError):
 
 
 class UnresolvableDependencyError(Exception):
-    """Raised when an auto-wired dependency cannot be resolved.
-
-    Example:
-        >>> raise UnresolvableDependencyError(Service, Missing)
-        Traceback (most recent call last):
-        ...
-        UnresolvableDependencyError: Unresolvable dependency:
-        <class '...Service'> -> <class '...Missing'>
-    """
+    """Raised when an auto-wired dependency cannot be resolved."""
 
     def __init__(self, key: Key, dep: Key) -> None:
         self.key = key
@@ -71,12 +55,13 @@ def injectable(
 ) -> Any:
     """Mark a class as a candidate for auto-registration.
 
-    Usable bare (``@injectable``) or with options (``@injectable(scope=...)``).
+    Usable bare (``@injectable``) or with options
+    (``@injectable(scope=..., qualifier=...)``).
 
     Args:
         cls: Class being decorated (bare usage).
         scope: Default lifetime for the class.
-        qualifier: Named qualifier (reserved for future use).
+        qualifier: Named qualifier.
 
     Example:
         >>> @injectable(scope="singleton")
@@ -100,7 +85,20 @@ def injectable(
     return decorate
 
 
-def _deps_of(cls: type) -> Tuple[type, ...]:
+def _annotation_key(annotation: Any) -> Any:
+    """Convert an annotation into a container lookup key.
+
+    Unwraps ``Annotated[Type, Qualifier("read")]`` into the tuple key
+    ``(Type, "read")``. Plain annotations map to themselves.
+    """
+    if get_origin(annotation) is not None and hasattr(annotation, "__metadata__"):
+        for meta in getattr(annotation, "__metadata__", ()):
+            if isinstance(meta, Qualifier):
+                return (get_args(annotation)[0], meta.name)
+    return annotation
+
+
+def _deps_of(cls: type) -> Tuple[Key, ...]:
     """Extract annotated constructor dependencies for a class.
 
     Raises:
@@ -109,25 +107,36 @@ def _deps_of(cls: type) -> Tuple[type, ...]:
     if inspect.signature(cls) == inspect.signature(object):
         return ()
     sig = inspect.signature(cls)
-    deps: list[type] = []
+    deps: list[Key] = []
     for name, param in sig.parameters.items():
         if param.default is not inspect.Parameter.empty:
             continue
         if param.annotation is inspect.Parameter.empty:
             raise MissingAnnotationError(cls, name)
-        deps.append(param.annotation)
+        deps.append(_annotation_key(param.annotation))
     return tuple(deps)
 
 
-def _rule_for(cls: type) -> Rule:
-    """Build a resolution rule for an injectable class."""
-    meta = getattr(cls, _INJECTABLE_META, {}) or {}
+def _rule_for(cls: Key) -> Rule:
+    """Build a resolution rule for an injectable class.
+
+    When ``cls`` is a ``(type, qualifier)`` tuple, the rule is stored under
+    the qualified key. Otherwise the class meta qualifier is used.
+    """
+    qualifier: Optional[str] = None
+    target: type = cls  # type: ignore[assignment]
+    if isinstance(cls, tuple) and len(cls) == 2:
+        qualifier = cls[1]
+        target = cls[0]
+    meta = getattr(target, _INJECTABLE_META, {}) or {}
     scope = meta.get("scope")
+    qualifier = qualifier or meta.get("qualifier")
+    key: Key = (target, qualifier) if qualifier else target
     return Rule(
-        key=cls,
-        make=cls,
+        key=key,
+        make=target,
         lifetime=scope or "singleton",
-        deps=_deps_of(cls),
+        deps=_deps_of(target),
     )
 
 
