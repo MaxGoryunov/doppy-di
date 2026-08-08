@@ -15,6 +15,9 @@ repos:
       - id: mypy
         additional_dependencies:
           - pytest>=8.4
+          - fastapi
+          - aiogram
+          - typer
         args: []
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.8.3
