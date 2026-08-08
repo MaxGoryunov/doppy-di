@@ -13,6 +13,7 @@ Example:
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import threading
@@ -760,6 +761,129 @@ class Container:
             child = alias[1]
             if isinstance(child, str) and hasattr(obj, child):
                 self.single[alias] = getattr(obj, child)
+
+    async def aget(self, key: Key) -> Any:
+        """Resolve a service by key asynchronously.
+
+        Resolves dependencies concurrently with ``asyncio.gather`` and awaits
+        async factories. Sync factories are called directly, so there is no
+        overhead for sync dependencies. Singleton results are cached.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.service("answer", lambda: 42)
+            >>> container = builder.build()
+            >>> async def main():
+            ...     return await container.aget("answer")
+            >>> import asyncio
+            >>> asyncio.run(main())
+            42
+        """
+        if key in self.single:
+            return self.single[key]
+
+        try:
+            rule = self.config.ruleset.find(key)
+        except ServiceNotFoundError:
+            if isinstance(key, type) and getattr(key, "__doppy_injectable__", False):
+                from .auto_wiring import _rule_for
+
+                self.config.ruleset.add(key, _rule_for(key))
+                rule = self.config.ruleset.find(key)
+            else:
+                raise
+        if rule.async_yield_provider:
+            raise TypeError(f"Async yield provider {key!r} requires async scope")
+        args = await asyncio.gather(*(self.aget(dep) for dep in rule.deps))
+        obj = rule.make(*args)
+        if inspect.isawaitable(obj):
+            obj = await obj
+
+        if rule.lifetime == "singleton":
+            self.single[key] = obj
+        self._cache_nested_aliases(key, obj)
+
+        return obj
+
+    async def get_many(self, keys: List[Key], parallel: bool = False) -> List[Any]:
+        """Resolve multiple services, optionally in parallel.
+
+        Args:
+            keys: Service keys to resolve.
+            parallel: When True, resolve independent dependencies
+                concurrently. Falls back to sequential resolution for small
+                graphs (fewer than 5 nodes) where parallelism overhead
+                outweighs the benefit.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("a", 1)
+            >>> builder.value("b", 2)
+            >>> container = builder.build()
+            >>> async def main():
+            ...     return await container.get_many(["a", "b"])
+            >>> import asyncio
+            >>> asyncio.run(main())
+            [1, 2]
+        """
+        if not parallel:
+            return [await self.aget(key) for key in keys]
+
+        levels = self._independent_levels(keys)
+        total = sum(len(level) for level in levels)
+        if total < 5:
+            return [await self.aget(key) for key in keys]
+
+        results: Dict[Key, Any] = {}
+        for level in levels:
+            resolved = await asyncio.gather(*(self.aget(key) for key in level))
+            results.update(dict(zip(level, resolved)))
+        return [results[key] for key in keys]
+
+    def _independent_levels(self, keys: List[Key]) -> List[List[Key]]:
+        """Group keys and their transitive deps into dependency levels.
+
+        Each level contains nodes whose dependencies all appear in earlier
+        levels, so nodes within a level can be resolved concurrently.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("a", 1)
+            >>> builder.service("b", lambda a: a + 1, deps=["a"])
+            >>> container = builder.build()
+            >>> container._independent_levels(["b"])
+            [['a'], ['b']]
+        """
+        ruleset = self.config.ruleset
+        needed: set[Key] = set()
+        stack = list(keys)
+        while stack:
+            key = stack.pop()
+            if key in needed:
+                continue
+            needed.add(key)
+            stack.extend(ruleset.deps_of(key))
+
+        indegree: Dict[Key, int] = dict.fromkeys(needed, 0)
+        dependents: Dict[Key, List[Key]] = {key: [] for key in needed}
+        for key in needed:
+            for dep in ruleset.deps_of(key):
+                if dep in needed:
+                    indegree[key] += 1
+                    dependents[dep].append(key)
+
+        ready = [key for key in needed if indegree[key] == 0]
+        levels: List[List[Key]] = []
+        while ready:
+            levels.append(ready)
+            next_ready: List[Key] = []
+            for key in ready:
+                for dependent in dependents[key]:
+                    indegree[dependent] -= 1
+                    if indegree[dependent] == 0:
+                        next_ready.append(dependent)
+            ready = next_ready
+        return levels
 
     def scan(
         self,
