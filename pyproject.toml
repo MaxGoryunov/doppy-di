@@ -43,6 +43,15 @@ docs = [
     "mkdocs-material",
     "mkdocstrings[python]",
 ]
+fastapi = [
+    "fastapi",
+]
+aiogram = [
+    "aiogram",
+]
+typer = [
+    "typer",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/doppy_di"]
@@ -72,6 +81,10 @@ exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/']
 [[tool.mypy.overrides]]
 module = "noxfile"
 ignore_errors = true
+
+[[tool.mypy.overrides]]
+module = "doppy_di.ext.*"
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 addopts = "--cov=src/doppy_di --cov-report=term-missing"

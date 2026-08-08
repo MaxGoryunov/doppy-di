@@ -29,7 +29,7 @@ jobs:
           enable-cache: true
 
       - name: Install deps
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra fastapi --extra aiogram --extra typer
 
       - name: Ruff format
         run: uv run ruff format --check .
@@ -95,7 +95,7 @@ jobs:
           enable-cache: true
 
       - name: Install deps
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra fastapi --extra aiogram --extra typer
 
       - name: Run tests
         run: uv run pytest --cov --cov-branch --cov-report=xml
@@ -104,4 +104,3 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-
