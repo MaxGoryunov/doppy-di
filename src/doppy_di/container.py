@@ -327,6 +327,7 @@ class Rule:
     yield_provider: bool = False
     async_yield_provider: bool = False
     nested: bool = False
+    scope: Optional[str] = None
 
     def __post_init__(self) -> None:
         LifetimePolicy.validate(self.lifetime)
@@ -348,7 +349,7 @@ class RuleSet:
         True
     """
 
-    __slots__ = ("graph", "map")
+    __slots__ = ("graph", "map", "version")
 
     def __init__(
         self,
@@ -358,6 +359,7 @@ class RuleSet:
         """Initialize storage from optional existing map and graph."""
         self.map = dict(rules_map or {})
         self.graph = dict(graph or {})
+        self.version = 0
 
     def add(self, key: Key, rule: Rule) -> None:
         """Add a rule and validate graph cycles.
@@ -381,6 +383,7 @@ class RuleSet:
             self.map = old_map
             self.graph = old_graph
             raise
+        self.version += 1
 
     def find(self, key: Key) -> Rule:
         """Return a rule by key.
@@ -706,7 +709,15 @@ class Container:
         42
     """
 
-    __slots__ = ("config", "lock", "scope_policy", "scopes", "single")
+    __slots__ = (
+        "_visualize_cache",
+        "_visualize_version",
+        "config",
+        "lock",
+        "scope_policy",
+        "scopes",
+        "single",
+    )
 
     def __init__(self, config: ContainerConfig) -> None:
         self.config = config
@@ -714,6 +725,8 @@ class Container:
         self.scopes: Dict[str, Scope] = {}
         self.scope_policy: ScopePolicy = config.scope_policy
         self.lock = threading.RLock()
+        self._visualize_cache: Dict[str, Any] = {}
+        self._visualize_version = -1
 
     def get(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Resolve a service by key.
@@ -1043,6 +1056,47 @@ class Container:
         """
         return OverrideContext(self, key, value)
 
+    def visualize(self, format: str = "mermaid") -> Any:  # noqa: A002
+        """Return a textual representation of the dependency graph.
+
+        Supported formats:
+            - ``"mermaid"`` — mermaid ``graph TD`` for embedding in Markdown.
+            - ``"graphviz"`` — Graphviz ``digraph`` for PNG/SVG generation.
+            - ``"json"`` — structured dict for programmatic processing.
+
+        Rendering applies only to registered rules. Lifetime and optional
+        scope are encoded as node color and shape. Edges participating in a
+        cycle are marked ``[CYCLE]``. The result is cached until the rule set
+        changes, so repeated calls are free.
+
+        Args:
+            format: Output format among ``"mermaid"``, ``"graphviz"``,
+                ``"json"``.
+
+        Returns:
+            str for ``"mermaid"``/``"graphviz"``, dict for ``"json"``.
+
+        Raises:
+            ValueError: If ``format`` is not supported.
+
+        Example:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("db", object())
+            >>> builder.service("service", lambda db: db, deps=["db"])
+            >>> c = builder.build()
+            >>> out = c.visualize()
+            >>> "graph TD" in out
+            True
+        """
+        from .devkit.visualize import render
+
+        if self.config.ruleset.version != self._visualize_version:
+            self._visualize_cache = {}
+            self._visualize_version = self.config.ruleset.version
+        if format not in self._visualize_cache:
+            self._visualize_cache[format] = render(self.config.ruleset, format)
+        return self._visualize_cache[format]
+
     def validate(
         self,
         strict: bool = True,
@@ -1193,6 +1247,7 @@ class ContainerBuilder:
         lifetime: Lifetime = "transient",
         deps: Optional[List[Key]] = None,
         qualifier: Optional[str] = None,
+        scope: Optional[str] = None,
     ) -> None:
         """Register a factory service.
 
@@ -1218,6 +1273,7 @@ class ContainerBuilder:
             make=make,
             lifetime=lifetime,
             deps=tuple(deps or ()),
+            scope=scope,
         )
         self._register(lookup, rule)
 
