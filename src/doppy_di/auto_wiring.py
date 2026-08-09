@@ -20,7 +20,7 @@ import importlib
 import inspect
 import pkgutil
 from types import ModuleType
-from typing import Any, Optional, Tuple, Type, Union, get_args, get_origin
+from typing import Any, Optional, Tuple, Type, TypeGuard, Union, get_args, get_origin
 
 from .container import Key, Qualifier, Rule
 
@@ -45,6 +45,21 @@ class UnresolvableDependencyError(Exception):
 
 _INJECTABLE_FLAG = "__doppy_injectable__"
 _INJECTABLE_META = "__doppy_injectable_meta__"
+
+
+def is_injectable(cls: type) -> TypeGuard[type]:
+    """Return True when ``cls`` is marked with ``@injectable``.
+
+    Example:
+        >>> @injectable
+        ... class Service:
+        ...     pass
+        >>> is_injectable(Service)
+        True
+        >>> is_injectable(int)
+        False
+    """
+    return bool(getattr(cls, _INJECTABLE_FLAG, False))
 
 
 def injectable(
