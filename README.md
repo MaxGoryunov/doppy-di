@@ -34,7 +34,7 @@
 [![GitHub issues](https://img.shields.io/github/issues/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/issues)
 [![GitHub pull requests](https://img.shields.io/github/issues-pr/MaxGoryunov/doppy-di)](https://github.com/MaxGoryunov/doppy-di/pulls)
 
-Minimal dependency injection container for Python. Provides immutable rule definitions, singleton/transient lifetimes, scoped caching, nested attribute resolution, cycle detection, and optional validation, logging, and ordering layers.
+Minimal dependency injection container for Python. Provides immutable rule definitions, singleton/transient lifetimes, scoped caching, nested attribute resolution, cycle detection, and optional validation, logging, and ordering layers. Includes auto-wiring, function injection, yield-provider finalization, qualifiers, graph validation, dependency visualization, framework integrations, parallel async resolution, and modern typing support.
 
 ## How to use it
 
@@ -83,6 +83,8 @@ with container.override("answer", 99):
     print(container.get("answer"))  # 99
 print(container.get("answer"))      # restored to 42
 ```
+
+Override on an unregistered key raises `UnregisteredTypeError` — prevents silent no-op overrides.
 
 ## Use cases
 
@@ -191,6 +193,119 @@ from doppy_di.devkit.policy import OrderPolicy
 # control the order of nested field resolution
 policy = ChildrenFirstPolicy()
 ```
+
+### Auto-wiring
+
+Mark classes with `@injectable` for automatic registration. `Container.scan()` discovers all injectable classes in a package; lazy registration on `get()` works without `scan()`.
+
+```python
+from doppy_di import injectable
+from doppy_di.container import ContainerBuilder
+
+@injectable(scope="singleton")
+class Database:
+    pass
+
+@injectable
+class Service:
+    def __init__(self, repo: Database) -> None:
+        self.repo = repo
+
+builder = ContainerBuilder()
+container = builder.build()
+container.scan(__name__)          # batch discovery
+svc = container.get(Service)      # or lazy: no scan() needed
+```
+
+### Function injection
+
+Use `@inject` and `Depends()` to inject dependencies into plain functions and methods. Supports sync and async.
+
+```python
+from doppy_di import inject, Depends
+
+@inject(container=container)
+def handle_event(event: Event, service: UserService = Depends()):
+    return service.process(event)
+```
+
+### Yield providers
+
+Register generator factories for resources that need cleanup. The scope calls `close()` on exit.
+
+```python
+def make_session():
+    try:
+        yield Database()
+    finally:
+        cleanup()
+
+builder.service("session", make_session, lifetime="transient")
+with container.scope("req") as scope:
+    session = scope.get("session")   # acquires
+# session finalized on scope exit
+```
+
+Async generators are supported via `async with container.ascope()`.
+
+### Qualifiers
+
+Register multiple rules for the same type using a `qualifier` string.
+
+```python
+builder.service(Database, qualifier="read", factory=lambda: Database("read"))
+builder.service(Database, qualifier="write", factory=lambda: Database("write"))
+
+read_db = container.get(Database, qualifier="read")
+```
+
+### Graph validation
+
+Call `container.validate()` to check the entire dependency graph at once, without resolving.
+
+```python
+errors = container.validate(strict=False)   # collect all errors
+container.validate(strict=True)             # raise on first error
+```
+
+### Graph visualization
+
+Render the dependency graph as Mermaid, Graphviz, or JSON.
+
+```python
+print(container.visualize("mermaid"))   # graph TD  Service --> Database
+print(container.visualize("graphviz"))  # digraph G { Service -> Database; }
+data = container.visualize("json")      # {"Service": {"deps": ["Database"]}}
+```
+
+### Parallel async resolution
+
+Resolve independent dependencies concurrently with `get_many()`.
+
+```python
+a, b = await container.get_many(["a", "b"], parallel=True)
+```
+
+Async containers also support `aget()` and `ascope()`.
+
+### Framework integrations
+
+Optional first-party integrations for FastAPI, aiogram, and Typer live in `doppy_di.ext.*`.
+
+```python
+from doppy_di.ext.fastapi import setup_doppy
+setup_doppy(app, container)                 # per-request scope
+
+from doppy_di.ext.aiogram import setup_doppy
+setup_doppy(bot, container)                 # per-update scope
+
+from doppy_di.ext.typer import setup_doppy
+setup_doppy(app, container)                 # inject into commands
+```
+
+### Modern typing support
+
+The public API supports `TypeAlias`, `TypedDict`, `ParamSpec`, `TypeGuard`, and `Self` for improved static checking with mypy strict. No runtime overhead.
 
 Additional information can be found in [Documentation](https://maxgoryunov.github.io/doppy-di/).
 
