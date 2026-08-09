@@ -34,11 +34,16 @@ from typing import (
     Dict,
     List,
     Optional,
+    ParamSpec,
     Protocol,
     Tuple,
     Type,
+    TypeVar,
     Union,
+    runtime_checkable,
 )
+
+from typing_extensions import Self, TypeAlias
 
 logger = logging.getLogger("doppy_di.container")
 
@@ -61,6 +66,26 @@ class KeyProtocol(Protocol):
 
 Key = Union[str, type, KeyProtocol, Tuple[Any, str]]
 Lifetime = str
+
+P = ParamSpec("P")
+T = TypeVar("T", covariant=True)
+
+
+@runtime_checkable
+class Factory(Protocol[P, T]):
+    """A factory callable with parameter specification.
+
+    Example:
+        >>> def make(host: str) -> Database:
+        ...     return Database(host)
+        >>> isinstance(make, Factory)
+        True
+    """
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> T: ...
+
+
+Provider: TypeAlias = Callable[P, T]
 
 
 @dataclass(frozen=True)
@@ -1248,7 +1273,7 @@ class ContainerBuilder:
         deps: Optional[List[Key]] = None,
         qualifier: Optional[str] = None,
         scope: Optional[str] = None,
-    ) -> None:
+    ) -> Self:
         """Register a factory service.
 
         Args:
@@ -1276,8 +1301,9 @@ class ContainerBuilder:
             scope=scope,
         )
         self._register(lookup, rule)
+        return self
 
-    def value(self, key: Key, value: Any) -> None:
+    def value(self, key: Key, value: Any) -> Self:
         """Register a constant value as a singleton.
 
         Example:
@@ -1300,8 +1326,9 @@ class ContainerBuilder:
                 deps=(),
             ),
         )
+        return self
 
-    def alias(self, key: Key, target: Key) -> None:
+    def alias(self, key: Key, target: Key) -> Self:
         """Register an alias pointing to another key.
 
         Example:
@@ -1325,6 +1352,7 @@ class ContainerBuilder:
                 deps=(target,),
             ),
         )
+        return self
 
     def build(self, validate: bool = False) -> Container:
         """Build and return a Container.
