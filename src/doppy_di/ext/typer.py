@@ -3,7 +3,7 @@
 Provides ``setup_doppy`` which wraps registered commands with ``@inject``
 for automatic dependency injection.
 
-Example:
+Examples:
     >>> from typer import Typer
     >>> from doppy_di.container import ContainerBuilder
     >>> from doppy_di.ext.typer import setup_doppy

@@ -3,7 +3,7 @@
 Provides ``setup_doppy`` which registers middleware that creates a
 per-update scope and exposes it via the update data dict.
 
-Example:
+Examples:
     >>> from aiogram import Bot
     >>> from doppy_di.container import ContainerBuilder
     >>> from doppy_di.ext.aiogram import setup_doppy

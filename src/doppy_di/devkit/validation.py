@@ -1,6 +1,6 @@
 """Validation layer for container resolution.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("x", 1)
@@ -27,7 +27,7 @@ from .policy import OrderPolicy
 class ValidationRule(Protocol):
     """A validation rule executed after resolution.
 
-    Example:
+    Examples:
         >>> class MyRule:
         ...     def check(self, container, key, obj):
         ...         assert obj is not None
@@ -43,7 +43,7 @@ class ValidationRule(Protocol):
 class ValidationRunner:
     """Run a list of validation rules.
 
-    Example:
+    Examples:
         >>> runner = ValidationRunner()
         >>> len(runner.rules)
         0
@@ -60,7 +60,7 @@ class ValidationRunner:
     def add(self, rule: ValidationRule) -> None:
         """Append a validation rule.
 
-        Example:
+        Examples:
             >>> runner = ValidationRunner()
             >>> runner.add(MyRule())
             >>> len(runner.rules)
@@ -71,7 +71,7 @@ class ValidationRunner:
     def run(self, container: Container, key: Key, obj: Any) -> None:
         """Execute all registered rules.
 
-        Example:
+        Examples:
             >>> runner = ValidationRunner()
             >>> runner.run(container, "x", 42)
         """
@@ -85,7 +85,7 @@ class ValidatingContainer:
     Wraps a base Container with resolution ordering and optional
     validation rules.
 
-    Example:
+    Examples:
         >>> from doppy_di.container import ContainerBuilder
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
@@ -116,7 +116,7 @@ class ValidatingContainer:
     def get(self, key: Key) -> Any:
         """Resolve key with ordering and validation.
 
-        Example:
+        Examples:
             >>> wrapped = ValidatingContainer(base, UnorderedPolicy())
             >>> wrapped.get("x")
             1
@@ -144,7 +144,7 @@ class ValidatingContainer:
     def has(self, key: Key) -> bool:
         """Check if key is registered.
 
-        Example:
+        Examples:
             >>> wrapped.has("x")
             True
         """
@@ -153,7 +153,7 @@ class ValidatingContainer:
     def scope(self, name: str) -> Scope:
         """Return a scope from the wrapped container.
 
-        Example:
+        Examples:
             >>> s = wrapped.scope("req")
             >>> isinstance(s, Scope)
             True
@@ -163,7 +163,7 @@ class ValidatingContainer:
     def override(self, key: Key, value: Any) -> OverrideContext:
         """Override a value in the wrapped container.
 
-        Example:
+        Examples:
             >>> with wrapped.override("x", 2):
             ...     wrapped.get("x")
             2

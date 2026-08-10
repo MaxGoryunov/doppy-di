@@ -1,6 +1,6 @@
 """Logging layer for container access.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("x", 1)
@@ -24,7 +24,7 @@ class LoggingContainer:
 
     Wraps a Container and calls a log function on every operation.
 
-    Example:
+    Examples:
         >>> events = []
         >>> def log(msg):
         ...     events.append(msg)
@@ -45,7 +45,7 @@ class LoggingContainer:
     def get(self, key: Key) -> Any:
         """Resolve key and log the operation.
 
-        Example:
+        Examples:
             >>> wrapped.get("x")
             1
         """
@@ -61,7 +61,7 @@ class LoggingContainer:
     def has(self, key: Key) -> bool:
         """Log presence check and delegate.
 
-        Example:
+        Examples:
             >>> wrapped.has("x")
             True
         """
@@ -71,7 +71,7 @@ class LoggingContainer:
     def scope(self, name: str) -> Scope:
         """Log scope creation and delegate.
 
-        Example:
+        Examples:
             >>> s = wrapped.scope("req")
             >>> isinstance(s, Scope)
             True
@@ -82,7 +82,7 @@ class LoggingContainer:
     def override(self, key: Key, value: Any) -> OverrideContext:
         """Log override creation and delegate.
 
-        Example:
+        Examples:
             >>> ctx = wrapped.override("x", 2)
             >>> isinstance(ctx, OverrideContext)
             True

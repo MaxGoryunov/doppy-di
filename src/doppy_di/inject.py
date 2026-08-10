@@ -3,7 +3,7 @@
 Provides the ``@inject`` decorator and ``Depends()`` helper for injecting
 dependencies into plain functions and methods.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("service", 42)
@@ -58,7 +58,7 @@ def Depends(  # noqa: N802
         dependency: Type to resolve from container, callable to invoke, or
             ``None`` to fall back to the argument annotation.
 
-    Example:
+    Examples:
         >>> Depends()
         <doppy_di.inject._DependsMarker object at ...>
     """
@@ -223,7 +223,7 @@ def inject(
         container: Container used for resolution.
         scope: Optional scope name for temporary dependencies.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.value("service", 42)
         >>> container = builder.build()
