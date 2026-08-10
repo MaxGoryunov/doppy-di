@@ -1,6 +1,6 @@
 """Nested-rule validation helpers.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("service", object())
@@ -24,7 +24,7 @@ class NestedPolicy(Protocol):
     Implementations compare the resolved nested attribute against the object
     stored under the nested rule key.
 
-    Example:
+    Examples:
         >>> isinstance(SameObjectPolicy(), NestedPolicy)
         True
     """
@@ -37,7 +37,7 @@ class NestedPolicy(Protocol):
 class SameObjectPolicy:
     """Check object identity for nested values.
 
-    Example:
+    Examples:
         >>> policy = SameObjectPolicy()
         >>> obj = object()
         >>> policy.check(obj, obj)
@@ -57,7 +57,7 @@ class SameValuePolicy:
         strict: When True, propagate comparison exceptions instead of
             returning False.
 
-    Example:
+    Examples:
         >>> policy = SameValuePolicy()
         >>> policy.check(1, 1)
         True
@@ -91,7 +91,7 @@ class SameValuePolicy:
 class NestedEntry:
     """Describe one nested registration.
 
-    Example:
+    Examples:
         >>> entry = NestedEntry("service", "repo")
         >>> entry.parent
         'service'
@@ -118,7 +118,7 @@ class NestedRules:
         The nested key ``(parent, child)`` is added to the shared ruleset and
         tracked for validation.
 
-        Example:
+        Examples:
             >>> nested = NestedRules()
             >>> rule = Rule(("db", "conn"), lambda: object())
             >>> rs = RuleSet()

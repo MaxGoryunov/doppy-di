@@ -37,6 +37,13 @@ jobs:
       - name: Ruff lint
         run: uv run ruff check .
 
+      - name: Check docstring sections use plural Examples
+        run: |
+          if grep -rn "Example:" src/; then
+            echo "Use 'Examples:' (plural) so mkdocstrings renders code blocks with newlines"
+            exit 1
+          fi
+
       - name: Mypy strict
         run: uv run mypy
 

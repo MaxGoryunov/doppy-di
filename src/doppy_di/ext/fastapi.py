@@ -3,7 +3,7 @@
 Provides ``setup_doppy`` which registers middleware that creates a
 per-request scope and exposes it via ``request.state``.
 
-Example:
+Examples:
     >>> from fastapi import FastAPI
     >>> from doppy_di.container import ContainerBuilder
     >>> from doppy_di.ext.fastapi import setup_doppy

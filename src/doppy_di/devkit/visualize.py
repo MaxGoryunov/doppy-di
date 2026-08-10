@@ -4,7 +4,7 @@ Renders registered rules as mermaid, Graphviz dot, or a JSON dict.
 Lifetime is encoded as node color, optional scope as node shape. Edges
 belonging to a dependency cycle are annotated ``[CYCLE]``.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("db", object())

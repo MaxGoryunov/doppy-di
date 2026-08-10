@@ -1,6 +1,6 @@
 """Resolution order policies for container layers.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> builder = ContainerBuilder()
     >>> builder.value("x", 1)
@@ -19,7 +19,7 @@ from ..container import Key, ResolveContext, RuleSet
 class OrderPolicy(Protocol):
     """A strategy for controlling resolution order.
 
-    Example:
+    Examples:
         >>> isinstance(UnorderedPolicy(), OrderPolicy)
         True
     """
@@ -35,7 +35,7 @@ class OrderPolicy(Protocol):
 class UnorderedPolicy:
     """Policy with no extra resolution ordering.
 
-    Example:
+    Examples:
         >>> policy = UnorderedPolicy()
         >>> isinstance(policy, UnorderedPolicy)
         True
@@ -53,7 +53,7 @@ class UnorderedPolicy:
 class ChildrenFirstPolicy:
     """Resolve nested children before the parent.
 
-    Example:
+    Examples:
         >>> policy = ChildrenFirstPolicy(nested={"service": ["repo"]})
         >>> isinstance(policy, ChildrenFirstPolicy)
         True
@@ -79,7 +79,7 @@ class ChildrenFirstPolicy:
 class ParentFirstPolicy:
     """Resolve parent first, then optionally inspect children.
 
-    Example:
+    Examples:
         >>> policy = ParentFirstPolicy(nested={"service": ["repo"]})
         >>> isinstance(policy, ParentFirstPolicy)
         True

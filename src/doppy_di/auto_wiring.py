@@ -3,7 +3,7 @@
 Provides the ``@injectable`` decorator and helpers used by ``Container.scan()``
 and lazy registration in ``Container.get()``.
 
-Example:
+Examples:
     >>> from doppy_di.container import ContainerBuilder
     >>> @injectable
     ... class Service:
@@ -50,7 +50,7 @@ _INJECTABLE_META = "__doppy_injectable_meta__"
 def is_injectable(cls: type) -> TypeGuard[type]:
     """Return True when ``cls`` is marked with ``@injectable``.
 
-    Example:
+    Examples:
         >>> @injectable
         ... class Service:
         ...     pass
@@ -78,7 +78,7 @@ def injectable(
         scope: Default lifetime for the class.
         qualifier: Named qualifier.
 
-    Example:
+    Examples:
         >>> @injectable(scope="singleton")
         ... class Service:
         ...     pass

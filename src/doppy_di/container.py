@@ -3,7 +3,7 @@
 This module provides immutable rule descriptions and a minimal container with
 explicit rule registration.
 
-Example:
+Examples:
     >>> builder = ContainerBuilder()
     >>> builder.service("answer", lambda: 42)
     >>> container = builder.build()
@@ -51,7 +51,7 @@ logger = logging.getLogger("doppy_di.container")
 class KeyProtocol(Protocol):
     """A protocol for custom hashable keys.
 
-    Example:
+    Examples:
         >>> class MyKey:
         ...     def __hash__(self): return 1
         ...     def __eq__(self, other): return isinstance(other, MyKey)
@@ -75,7 +75,7 @@ T = TypeVar("T", covariant=True)
 class Factory(Protocol[P, T]):
     """A factory callable with parameter specification.
 
-    Example:
+    Examples:
         >>> def make(host: str) -> Database:
         ...     return Database(host)
         >>> isinstance(make, Factory)
@@ -92,7 +92,7 @@ Provider: TypeAlias = Callable[P, T]
 class Qualifier:
     """Marker for named dependencies via ``typing.Annotated``.
 
-    Example:
+    Examples:
         >>> Qualifier("read")
         Qualifier(name='read')
     """
@@ -103,7 +103,7 @@ class Qualifier:
 class ServiceNotFoundError(KeyError):
     """Raised when a service key is not registered.
 
-    Example:
+    Examples:
         >>> raise ServiceNotFoundError("missing")
         Traceback (most recent call last):
         ...
@@ -118,7 +118,7 @@ class ServiceNotFoundError(KeyError):
 class UnregisteredTypeError(KeyError):
     """Raised when an override targets an unregistered key.
 
-    Example:
+    Examples:
         >>> raise UnregisteredTypeError("missing")
         Traceback (most recent call last):
         ...
@@ -133,7 +133,7 @@ class UnregisteredTypeError(KeyError):
 class CycleError(Exception):
     """Raised when the rule graph contains a dependency cycle.
 
-    Example:
+    Examples:
         >>> raise CycleError(["a", "b", "a"])
         Traceback (most recent call last):
         ...
@@ -148,7 +148,7 @@ class CycleError(Exception):
 class YieldNotCalledError(Exception):
     """Raised when a yield provider generator does not yield.
 
-    Example:
+    Examples:
         >>> raise YieldNotCalledError("session")
         Traceback (most recent call last):
         ...
@@ -163,7 +163,7 @@ class YieldNotCalledError(Exception):
 class NestedRuleError(Exception):
     """Raised when a nested rule validation fails.
 
-    Example:
+    Examples:
         >>> raise NestedRuleError("service", "db", "field mismatch")
         Traceback (most recent call last):
         ...
@@ -180,7 +180,7 @@ class NestedRuleError(Exception):
 class ContainerBuildError(Exception):
     """Raised when build validation finds missing dependencies.
 
-    Example:
+    Examples:
         >>> raise ContainerBuildError([("a", "b"), ("c", "d")])
         Traceback (most recent call last):
         ...
@@ -196,7 +196,7 @@ class ContainerBuildError(Exception):
 class ValidationError(Exception):
     """Base class for static graph validation errors.
 
-    Example:
+    Examples:
         >>> raise ValidationError("bad graph")
         Traceback (most recent call last):
         ...
@@ -207,7 +207,7 @@ class ValidationError(Exception):
 class UnregisteredDependencyError(ValidationError):
     """Raised when a rule depends on an unregistered key.
 
-    Example:
+    Examples:
         >>> raise UnregisteredDependencyError("a", "b")
         Traceback (most recent call last):
         ...
@@ -223,7 +223,7 @@ class UnregisteredDependencyError(ValidationError):
 class CyclicDependencyError(ValidationError):
     """Raised when the rule graph contains a dependency cycle.
 
-    Example:
+    Examples:
         >>> raise CyclicDependencyError(["a", "b", "a"])
         Traceback (most recent call last):
         ...
@@ -238,7 +238,7 @@ class CyclicDependencyError(ValidationError):
 class InvalidFactoryError(ValidationError):
     """Raised when a factory is incompatible with its declared deps.
 
-    Example:
+    Examples:
         >>> raise InvalidFactoryError("a", "arity mismatch")
         Traceback (most recent call last):
         ...
@@ -254,7 +254,7 @@ class InvalidFactoryError(ValidationError):
 class DuplicateKeyError(KeyError):
     """Raised when a duplicate key is registered under the FAIL policy.
 
-    Example:
+    Examples:
         >>> raise DuplicateKeyError("x")
         Traceback (most recent call last):
         ...
@@ -273,7 +273,7 @@ class DuplicateKeyPolicy(Enum):
     FAIL: raise DuplicateKeyError on duplicate.
     WARN: log a warning and overwrite.
 
-    Example:
+    Examples:
         >>> DuplicateKeyPolicy.FAIL.name
         'FAIL'
         >>> DuplicateKeyPolicy.OVERWRITE.value
@@ -293,7 +293,7 @@ class ScopePolicy(Enum):
             key so its cache never leaks across calls even if __exit__
             is forgotten.
 
-    Example:
+    Examples:
         >>> ScopePolicy.NAMED.value
         'named'
         >>> ScopePolicy.UNIQUE.name
@@ -310,7 +310,7 @@ class LifetimePolicy:
     Centralizes the set of known lifetime identifiers and provides an
     extension point for registering custom lifetimes.
 
-    Example:
+    Examples:
         >>> LifetimePolicy.validate("singleton")
         >>> LifetimePolicy.validate("transient")
         >>> LifetimePolicy.validate("per_request")  # raises ValueError
@@ -337,7 +337,7 @@ class Rule:
         lifetime: Service lifetime.
         deps: Dependency keys.
 
-    Example:
+    Examples:
         >>> rule = Rule("answer", lambda: 42, "singleton", ())
         >>> rule.key
         'answer'
@@ -365,7 +365,7 @@ class Rule:
 class RuleSet:
     """Immutable-by-convention rule storage and dependency graph.
 
-    Example:
+    Examples:
         >>> rules = RuleSet()
         >>> rules.add("x", Rule("x", lambda: 1))
         >>> rules.find("x").key
@@ -392,7 +392,7 @@ class RuleSet:
         Raises:
             CycleError: If adding the rule creates a dependency cycle.
 
-        Example:
+        Examples:
             >>> rules = RuleSet()
             >>> rules.add("a", Rule("a", lambda: 1, deps=("b",)))
             >>> rules.has("a")
@@ -416,7 +416,7 @@ class RuleSet:
         Raises:
             ServiceNotFoundError: If key is not registered.
 
-        Example:
+        Examples:
             >>> rules = RuleSet()
             >>> rules.add("x", Rule("x", lambda: 1))
             >>> rules.find("x")
@@ -434,7 +434,7 @@ class RuleSet:
     def has(self, key: Key) -> bool:
         """Check whether a key is registered.
 
-        Example:
+        Examples:
             >>> rules = RuleSet()
             >>> rules.add("x", Rule("x", lambda: 1))
             >>> rules.has("x")
@@ -447,7 +447,7 @@ class RuleSet:
     def deps_of(self, key: Key) -> Tuple[Key, ...]:
         """Return direct dependencies for a key.
 
-        Example:
+        Examples:
             >>> rules = RuleSet()
             >>> rules.add("a", Rule("a", lambda: 1, deps=("b", "c")))
             >>> rules.deps_of("a")
@@ -458,7 +458,7 @@ class RuleSet:
     def keys(self) -> Tuple[Key, ...]:
         """Return registered keys.
 
-        Example:
+        Examples:
             >>> rules = RuleSet()
             >>> rules.add("x", Rule("x", lambda: 1))
             >>> rules.add("y", Rule("y", lambda: 2))
@@ -495,7 +495,7 @@ class ResolveContext:
 
     Provides access to the container and scope for dependency resolution.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.service("x", lambda: 1)
         >>> c = builder.build()
@@ -537,7 +537,7 @@ class OverrideContext:
     This contract guarantees that overriding an unresolved singleton never
     silently mutates the eventual resolved singleton.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
         >>> c = builder.build()
@@ -584,7 +584,7 @@ class Scope:
     Scopes allow caching within a ``with`` block. All resolved values are
     cached until the scope exits.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.service("x", lambda: object(), lifetime="transient")
         >>> c = builder.build()
@@ -616,7 +616,7 @@ class Scope:
     def get(self, key: Key) -> Any:
         """Resolve key from scope cache or underlying container.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("x", 1)
             >>> c = builder.build()
@@ -666,7 +666,7 @@ class Scope:
 class AsyncScope(Scope):
     """Async scope-local cache with async yield provider support.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
         >>> c = builder.build()
@@ -726,7 +726,7 @@ class Container:
 
     Thread-safe singleton resolution with double-checked locking.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.service("answer", lambda: 42, lifetime="singleton")
         >>> container = builder.build()
@@ -767,7 +767,7 @@ class Container:
             qualifier: Optional named qualifier. When given, resolves the
                 rule registered as ``(key, qualifier)``.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.service("answer", lambda: 42)
             >>> container = builder.build()
@@ -844,7 +844,7 @@ class Container:
             qualifier: Optional named qualifier. When given, the rule
                 registered as ``(key, qualifier)`` is resolved.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.service("answer", lambda: 42)
             >>> container = builder.build()
@@ -893,7 +893,7 @@ class Container:
                 graphs (fewer than 5 nodes) where parallelism overhead
                 outweighs the benefit.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("a", 1)
             >>> builder.value("b", 2)
@@ -924,7 +924,7 @@ class Container:
         Each level contains nodes whose dependencies all appear in earlier
         levels, so nodes within a level can be resolved concurrently.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("a", 1)
             >>> builder.service("b", lambda a: a + 1, deps=["a"])
@@ -972,7 +972,7 @@ class Container:
 
         Explicitly registered rules are never overridden.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> container = builder.build()
             >>> container.scan(__name__)
@@ -989,7 +989,7 @@ class Container:
             key: Service key.
             qualifier: Optional named qualifier.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.service("x", lambda: 1)
             >>> c = builder.build()
@@ -1008,7 +1008,7 @@ class Container:
             key: Service key.
             qualifier: Optional named qualifier.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> c = builder.build()
             >>> c.get_or_none("missing") is None
@@ -1022,7 +1022,7 @@ class Container:
     def scope(self, name: str) -> Scope:
         """Return a named or unique scope according to the active policy.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("x", 1)
             >>> c = builder.build()
@@ -1045,7 +1045,7 @@ class Container:
     def ascope(self, name: str) -> AsyncScope:
         """Return a named or unique async scope.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("x", 1)
             >>> c = builder.build()
@@ -1071,7 +1071,7 @@ class Container:
     def override(self, key: Key, value: Any) -> OverrideContext:
         """Create a temporary override context for the given key.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("x", 1)
             >>> c = builder.build()
@@ -1104,7 +1104,7 @@ class Container:
         Raises:
             ValueError: If ``format`` is not supported.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("db", object())
             >>> builder.service("service", lambda db: db, deps=["db"])
@@ -1140,7 +1140,7 @@ class Container:
             None when strict=True and the graph is valid.
             List of ValidationError when strict=False.
 
-        Example:
+        Examples:
             >>> builder = ContainerBuilder()
             >>> builder.value("x", 1)
             >>> c = builder.build()
@@ -1208,7 +1208,7 @@ class Container:
 class ContainerConfig:
     """Immutable container configuration.
 
-    Example:
+    Examples:
         >>> rules = RuleSet()
         >>> config = ContainerConfig(rules)
         >>> isinstance(config.ruleset, RuleSet)
@@ -1227,7 +1227,7 @@ class ContainerBuilder:
     Provides methods to register services, values, and aliases, then
     produce a ready-to-use Container.
 
-    Example:
+    Examples:
         >>> builder = ContainerBuilder()
         >>> builder.value("x", 1)
         >>> builder.service("y", lambda x: x + 1, deps=["x"])
@@ -1245,7 +1245,7 @@ class ContainerBuilder:
     ) -> None:
         """Initialize builder with optional policies.
 
-        Example:
+        Examples:
             >>> b = ContainerBuilder(
             ...     DuplicateKeyPolicy.FAIL, ScopePolicy.UNIQUE
             ... )
@@ -1284,7 +1284,7 @@ class ContainerBuilder:
             qualifier: Optional named qualifier. When given, the rule is
                 stored under the key ``(key, qualifier)``.
 
-        Example:
+        Examples:
             >>> b = ContainerBuilder()
             >>> b.service("greet", lambda name: f"Hello {name}", deps=["name"])
             >>> b.value("name", "World")
@@ -1306,7 +1306,7 @@ class ContainerBuilder:
     def value(self, key: Key, value: Any) -> Self:
         """Register a constant value as a singleton.
 
-        Example:
+        Examples:
             >>> b = ContainerBuilder()
             >>> b.value("pi", 3.14)
             >>> c = b.build()
@@ -1331,7 +1331,7 @@ class ContainerBuilder:
     def alias(self, key: Key, target: Key) -> Self:
         """Register an alias pointing to another key.
 
-        Example:
+        Examples:
             >>> b = ContainerBuilder()
             >>> b.value("x", 42)
             >>> b.alias("answer", "x")
@@ -1361,7 +1361,7 @@ class ContainerBuilder:
             validate: When True, raises ContainerBuildError if any
                 dependency key is not registered.
 
-        Example:
+        Examples:
             >>> b = ContainerBuilder()
             >>> b.value("x", 1)
             >>> c = b.build()
