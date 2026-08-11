@@ -8,7 +8,6 @@ import pytest
 from doppy_di import (
     AsyncDependencyInSyncContextError,
     ContainerBuilder,
-    ResolutionCancelledError,
     SyncFactoryReturningAwaitableError,
 )
 
@@ -162,7 +161,7 @@ def test_aget_sync_factory_returning_awaitable_raises() -> None:
         asyncio.run(container.aget("a"))
 
 
-def test_aget_cancellation_raises_resolution_cancelled() -> None:
+def test_aget_cancellation_raises_cancelled_error() -> None:
     async def make_slow() -> int:
         await asyncio.sleep(10)
         return 1
@@ -175,7 +174,7 @@ def test_aget_cancellation_raises_resolution_cancelled() -> None:
         task = asyncio.create_task(container.aget("slow"))
         await asyncio.sleep(0.01)
         task.cancel()
-        with pytest.raises(ResolutionCancelledError):
+        with pytest.raises(asyncio.CancelledError):
             await task
 
     asyncio.run(main())
