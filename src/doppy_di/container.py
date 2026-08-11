@@ -933,13 +933,13 @@ class Container:
         try:
             if rule.async_yield_provider:
                 stack = AsyncExitStack()
+                stacks.append(stack)
                 try:
                     obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
                 except RuntimeError as exc:
                     if "didn't yield" in str(exc):
                         raise YieldNotCalledError(lookup) from None
                     raise
-                stacks.append(stack)
                 if rule.lifetime == "singleton":
                     self.single[lookup] = obj
                 self._cache_nested_aliases(lookup, obj)

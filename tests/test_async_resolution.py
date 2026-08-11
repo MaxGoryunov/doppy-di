@@ -1,7 +1,8 @@
 """Tests for async-first resolution (issue 81)."""
 
 import asyncio
-from typing import Any, AsyncIterator, List, cast
+from types import TracebackType
+from typing import Any, AsyncIterator, List, Optional, Type, cast
 
 import pytest
 
@@ -178,6 +179,60 @@ def test_aget_cancellation_raises_cancelled_error() -> None:
             await task
 
     asyncio.run(main())
+
+
+def test_aget_cancellation_finalization_error_logged(caplog: Any) -> None:
+    async def make_slow() -> int:
+        await asyncio.sleep(10)
+        return 1
+
+    async def bad_exit(
+        exc_type: Optional[Type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
+        raise RuntimeError("close failed")
+
+    builder = ContainerBuilder()
+    builder.service("slow", make_slow)
+    container = builder.build()
+
+    async def main() -> None:
+        from contextlib import AsyncExitStack
+
+        stack = AsyncExitStack()
+        stack.push_async_exit(bad_exit)
+        task = asyncio.create_task(container.aget("slow", _stacks=[stack]))
+        await asyncio.sleep(0.01)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+    asyncio.run(main())
+    assert "Error finalizing yield provider" in caplog.text
+
+
+def test_get_many_parallel_multi_dependent_levels() -> None:
+    builder = ContainerBuilder()
+    builder.value("c", 1)
+    builder.value("b", 2)
+    builder.service("a", lambda c: c + 1, deps=["c"])
+    builder.service("x", lambda a, b: a + b, deps=["a", "b"])
+    container = builder.build()
+
+    async def main() -> List[Any]:
+        return await container.get_many(["x"], parallel=True)
+
+    assert asyncio.run(main()) == [4]
+
+
+def test_get_many_parallel_skips_unregistered_dependency_levels() -> None:
+    builder = ContainerBuilder()
+    builder.service("a", lambda b: b, deps=["b"])
+    container = builder.build()
+
+    levels = container._independent_levels(["a"])
+    assert ["a"] in levels
 
 
 def test_aget_async_yield_provider_cached_singleton() -> None:
