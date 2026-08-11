@@ -7,6 +7,7 @@ from .auto_wiring import (
     is_injectable,
 )
 from .container import (
+    AsyncDependencyInSyncContextError,
     AsyncScope,
     Container,
     ContainerBuilder,
@@ -24,12 +25,14 @@ from .container import (
     OverrideContext,
     Provider,
     Qualifier,
+    ResolutionCancelledError,
     ResolveContext,
     Rule,
     RuleSet,
     Scope,
     ScopePolicy,
     ServiceNotFoundError,
+    SyncFactoryReturningAwaitableError,
     UnregisteredDependencyError,
     UnregisteredTypeError,
     ValidationError,
@@ -52,6 +55,7 @@ from .devkit import (
 from .inject import Depends, inject
 
 __all__ = [
+    "AsyncDependencyInSyncContextError",
     "AsyncScope",
     "ChildrenFirstPolicy",
     "Container",
@@ -77,6 +81,7 @@ __all__ = [
     "ParentFirstPolicy",
     "Provider",
     "Qualifier",
+    "ResolutionCancelledError",
     "ResolveContext",
     "Rule",
     "RuleSet",
@@ -85,6 +90,7 @@ __all__ = [
     "Scope",
     "ScopePolicy",
     "ServiceNotFoundError",
+    "SyncFactoryReturningAwaitableError",
     "UnorderedPolicy",
     "UnregisteredDependencyError",
     "UnregisteredTypeError",

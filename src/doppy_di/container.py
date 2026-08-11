@@ -160,6 +160,44 @@ class YieldNotCalledError(Exception):
         super().__init__(f"Yield provider {key!r} did not yield a value")
 
 
+class AsyncDependencyInSyncContextError(Exception):
+    """Raised when an async dependency is resolved via sync ``get()``.
+
+    Examples:
+        >>> raise AsyncDependencyInSyncContextError("a")
+        Traceback (most recent call last):
+        ...
+        AsyncDependencyInSyncContextError: Async dependency 'a' cannot be resolved in sync context
+    """
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Async dependency {key!r} cannot be resolved in sync context")
+
+
+class SyncFactoryReturningAwaitableError(Exception):
+    """Raised when a sync factory returns an awaitable.
+
+    Examples:
+        >>> raise SyncFactoryReturningAwaitableError("a")
+        Traceback (most recent call last):
+        ...
+        SyncFactoryReturningAwaitableError: Sync factory 'a' returned an awaitable
+    """
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Sync factory {key!r} returned an awaitable")
+
+
+class ResolutionCancelledError(asyncio.CancelledError):
+    """Raised when ``aget()`` is cancelled after partially creating resources."""
+
+    def __init__(self, key: Key) -> None:
+        self.key = key
+        super().__init__(f"Resolution of {key!r} was cancelled")
+
+
 class NestedRuleError(Exception):
     """Raised when a nested rule validation fails.
 
@@ -353,6 +391,7 @@ class Rule:
     async_yield_provider: bool = False
     nested: bool = False
     scope: Optional[str] = None
+    is_async: bool = False
 
     def __post_init__(self) -> None:
         LifetimePolicy.validate(self.lifetime)
@@ -360,6 +399,11 @@ class Rule:
             object.__setattr__(self, "async_yield_provider", True)
         elif inspect.isgeneratorfunction(self.make):
             object.__setattr__(self, "yield_provider", True)
+        object.__setattr__(
+            self,
+            "is_async",
+            inspect.iscoroutinefunction(self.make) or self.async_yield_provider,
+        )
 
 
 class RuleSet:
@@ -696,7 +740,10 @@ class AsyncScope(Scope):
             return obj
         if rule.yield_provider:
             raise TypeError(f"Sync yield provider {key!r} cannot be resolved in async scope")
-        obj = self.container.get(key)
+        if rule.is_async:
+            obj = await self.container.aget(key)
+        else:
+            obj = self.container.get(key)
         self.cache[key] = obj
         return obj
 
@@ -796,6 +843,8 @@ class Container:
                     raise
             if rule.async_yield_provider:
                 raise TypeError(f"Async yield provider {lookup!r} requires async scope")
+            if rule.is_async:
+                raise AsyncDependencyInSyncContextError(lookup)
             ctx = ResolveContext(self)
             try:
                 args = [ctx.get(dep) for dep in rule.deps]
@@ -806,6 +855,8 @@ class Container:
                     raise UnresolvableDependencyError(lookup, exc.key) from None
                 raise
             obj = rule.make(*args)
+            if inspect.isawaitable(obj):
+                raise SyncFactoryReturningAwaitableError(lookup)
 
             if rule.lifetime == "singleton":
                 self.single[lookup] = obj
@@ -832,12 +883,20 @@ class Container:
             if isinstance(child, str) and hasattr(obj, child):
                 self.single[alias] = getattr(obj, child)
 
-    async def aget(self, key: Key, qualifier: Optional[str] = None) -> Any:
+    async def aget(
+        self,
+        key: Key,
+        qualifier: Optional[str] = None,
+        _stacks: Optional[List[AsyncExitStack]] = None,
+    ) -> Any:
         """Resolve a service by key asynchronously.
 
         Resolves dependencies concurrently with ``asyncio.gather`` and awaits
         async factories. Sync factories are called directly, so there is no
         overhead for sync dependencies. Singleton results are cached.
+
+        Async yield providers are supported; their resources are finalized
+        when resolution is cancelled.
 
         Args:
             key: Service key.
@@ -870,18 +929,47 @@ class Container:
                 raise UnregisteredDependencyError(key, qualifier) from None
             else:
                 raise
-        if rule.async_yield_provider:
-            raise TypeError(f"Async yield provider {lookup!r} requires async scope")
-        args = await asyncio.gather(*(self.aget(dep) for dep in rule.deps))
-        obj = rule.make(*args)
-        if inspect.isawaitable(obj):
-            obj = await obj
+        stacks = _stacks if _stacks is not None else []
+        try:
+            if rule.async_yield_provider:
+                stack = AsyncExitStack()
+                stacks.append(stack)
+                try:
+                    obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
+                except RuntimeError as exc:
+                    if "didn't yield" in str(exc):
+                        raise YieldNotCalledError(lookup) from None
+                    raise
+                if rule.lifetime == "singleton":
+                    self.single[lookup] = obj
+                self._cache_nested_aliases(lookup, obj)
+                return obj
+            if rule.yield_provider:
+                raise TypeError(f"Sync yield provider {lookup!r} cannot be resolved via aget")
+            levels = self._independent_levels(list(rule.deps))
+            args_by_key: Dict[Key, Any] = {}
+            for level in levels:
+                resolved = await asyncio.gather(*(self.aget(dep, _stacks=stacks) for dep in level))
+                args_by_key.update(dict(zip(level, resolved)))
+            args = [args_by_key[dep] for dep in rule.deps]
+            obj = rule.make(*args)
+            if not rule.is_async and inspect.isawaitable(obj):
+                raise SyncFactoryReturningAwaitableError(lookup)
+            if inspect.isawaitable(obj):
+                obj = await obj
 
-        if rule.lifetime == "singleton":
-            self.single[lookup] = obj
-        self._cache_nested_aliases(lookup, obj)
+            if rule.lifetime == "singleton":
+                self.single[lookup] = obj
+            self._cache_nested_aliases(lookup, obj)
 
-        return obj
+            return obj
+        except asyncio.CancelledError:
+            for stack in stacks:
+                try:
+                    await stack.aclose()
+                except Exception:
+                    logger.exception("Error finalizing yield provider")
+            raise ResolutionCancelledError(lookup) from None
 
     async def get_many(self, keys: List[Key], parallel: bool = False) -> List[Any]:
         """Resolve multiple services, optionally in parallel.

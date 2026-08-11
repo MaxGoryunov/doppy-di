@@ -230,7 +230,7 @@ def test_aget_missing_key_raises() -> None:
         asyncio.run(container.aget("missing"))
 
 
-def test_aget_async_yield_provider_rejected() -> None:
+def test_aget_async_yield_provider_resolves() -> None:
     async def make_session() -> Any:
         yield object()
 
@@ -238,8 +238,7 @@ def test_aget_async_yield_provider_rejected() -> None:
     builder.service("session", make_session)
     container = builder.build()
 
-    with pytest.raises(TypeError):
-        asyncio.run(container.aget("session"))
+    assert asyncio.run(container.aget("session")) is not None
 
 
 def test_aget_auto_wires_injectable_class() -> None:
