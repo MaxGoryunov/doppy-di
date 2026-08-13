@@ -2,6 +2,45 @@
 
 ::: doppy_di
 
+## Rich diagnostic errors
+
+Errors carry resolution paths, scope names, and optional registration
+sources.
+
+### Error classes
+
+- `MissingDependencyError` — deep dependency chain failure. Carries
+  `key`, `resolution_path`, `scope`, `registration_source`. Subclasses
+  `ServiceNotFoundError`.
+- `DependencyCycleError` — dependency cycle. Carries `cycle`. Subclasses
+  `CycleError`.
+- `InvalidLifetimeError` — unknown lifetime. Carries `lifetime`.
+  Subclasses `ValueError`.
+- `ScopeViolationError` — scope/lifetime violation. Carries `key`,
+  `scope`, `violation_type`.
+- `FactoryExecutionError` — wraps a factory-body exception. Carries
+  `key`, `original_exception`, `resolution_path`. Raised only when
+  `wrap_factory_errors=True`.
+- `DuplicateRegistrationError` — duplicate key under the FAIL policy.
+  Carries `key`, `existing_source`, `new_source`. Subclasses `KeyError`.
+- `ResourceFinalizationError` — yield-provider cleanup failure. Carries
+  `errors: list[(key, exception)]`. Raised only when
+  `finalization_errors=True`.
+
+### Builder flags
+
+```python
+builder = ContainerBuilder(
+    track_sources=True,          # capture filename/lineno on registration
+    wrap_factory_errors=True,    # wrap factory exceptions
+    finalization_errors=True,    # raise on yield-provider cleanup failure
+    check_cycles_on_register=False,  # defer cycle detection to resolve
+)
+```
+
+All flags default to `False` (or `True` for cycle checking), preserving
+existing behavior.
+
 ## Modern typing support
 
 The public API supports modern typing features for improved static checking
