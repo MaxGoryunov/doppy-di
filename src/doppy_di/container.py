@@ -24,6 +24,7 @@ from contextlib import (
     asynccontextmanager,
     contextmanager,
 )
+from contextvars import ContextVar
 from dataclasses import dataclass
 from enum import Enum
 from types import ModuleType, TracebackType
@@ -46,6 +47,8 @@ from typing import (
 from typing_extensions import Self, TypeAlias
 
 logger = logging.getLogger("doppy_di.container")
+
+_RESOLUTION_PATH: ContextVar[Optional[List[Key]]] = ContextVar("path", default=None)
 
 
 class KeyProtocol(Protocol):
@@ -304,6 +307,200 @@ class DuplicateKeyError(KeyError):
         super().__init__(f"Duplicate key: {key!r}")
 
 
+class DuplicateRegistrationError(DuplicateKeyError):
+    """Raised when a duplicate key is registered with source information.
+
+    Subclasses ``DuplicateKeyError`` for backward compatibility.
+    """
+
+    def __init__(
+        self,
+        key: Key,
+        existing_source: Optional[RegistrationSource] = None,
+        new_source: Optional[RegistrationSource] = None,
+    ) -> None:
+        self.key = key
+        self.existing_source = existing_source
+        self.new_source = new_source
+        super().__init__(key)
+
+    def __str__(self) -> str:
+        parts = [f"Duplicate registration for {self.key!r}:"]
+        if self.existing_source is not None:
+            parts.append(f"  existing: {self.existing_source}")
+        if self.new_source is not None:
+            parts.append(f"  new: {self.new_source}")
+        return "\n".join(parts)
+
+
+@dataclass(frozen=True)
+class RegistrationSource:
+    """Source location where a rule was registered.
+
+    Examples:
+        >>> src = RegistrationSource("app/container.py", 42, "setup")
+        >>> str(src)
+        'app/container.py:42'
+    """
+
+    filename: str
+    lineno: int
+    function_name: str
+
+    def __str__(self) -> str:
+        return f"{self.filename}:{self.lineno}"
+
+
+def _format_tree(path: List[Key], missing: Optional[Key] = None) -> str:
+    """Render a dependency tree with box-drawing characters."""
+    lines: List[str] = []
+    for i, key in enumerate(path):
+        prefix = "    " * i
+        if i == len(path) - 1 and missing is not None:
+            lines.append(f"{prefix}{key!r}  ← missing")
+        else:
+            lines.append(f"{prefix}{key!r}")
+        if i < len(path) - 1:
+            lines.append(f"{prefix}└──")
+    return "\n".join(lines)
+
+
+class MissingDependencyError(ServiceNotFoundError):
+    """Raised when a deep dependency chain fails to resolve.
+
+    Subclasses ``ServiceNotFoundError`` so existing ``KeyError`` handling
+    keeps working.
+
+    Examples:
+        >>> err = MissingDependencyError("c", ["a", "b", "c"])
+        >>> err.key
+        'c'
+        >>> err.resolution_path
+        ['a', 'b', 'c']
+    """
+
+    def __init__(
+        self,
+        key: Key,
+        resolution_path: Optional[List[Key]] = None,
+        scope: Optional[str] = None,
+        registration_source: Optional[RegistrationSource] = None,
+    ) -> None:
+        self.key = key
+        self.resolution_path = list(resolution_path or [])
+        self.scope = scope
+        self.registration_source = registration_source
+        super().__init__(key)
+
+    def __str__(self) -> str:
+        parts = [f"Cannot resolve {self.key!r}:"]
+        if self.resolution_path:
+            parts.append("")
+            parts.append(_format_tree(self.resolution_path, self.key))
+        if self.scope is not None:
+            parts.append("")
+            parts.append(f"Requested scope: {self.scope}")
+        if self.registration_source is not None:
+            parts.append("")
+            parts.append(f"Registration source: {self.registration_source}")
+        if self.resolution_path:
+            parts.append("")
+            parts.append("Resolution path: " + " → ".join(map(repr, self.resolution_path)))
+        return "\n".join(parts)
+
+
+class DependencyCycleError(CycleError):
+    """Raised when a dependency cycle is detected.
+
+    Subclasses ``CycleError`` for backward compatibility.
+
+    Examples:
+        >>> err = DependencyCycleError(["a", "b", "a"])
+        >>> "a" in err.cycle
+        True
+    """
+
+    def __init__(self, path: List[Key]) -> None:
+        super().__init__(path)
+        self.cycle = list(path)
+
+    def __str__(self) -> str:
+        return "Cycle detected: " + " → ".join(map(repr, self.cycle))
+
+
+class InvalidLifetimeError(ValueError):
+    """Raised when an unknown lifetime is used.
+
+    Subclasses ``ValueError`` for backward compatibility.
+
+    Examples:
+        >>> raise InvalidLifetimeError("per_request")
+        Traceback (most recent call last):
+        ...
+        InvalidLifetimeError: Unknown lifetime: 'per_request'
+    """
+
+    def __init__(self, lifetime: str) -> None:
+        self.lifetime = lifetime
+        super().__init__(f"Unknown lifetime: {lifetime!r}")
+
+
+class ScopeViolationError(Exception):
+    """Raised when a scope/lifetime rule is violated.
+
+    Defined for API completeness; not raised by the current container.
+    """
+
+    def __init__(self, key: Key, scope: str, violation_type: str) -> None:
+        self.key = key
+        self.scope = scope
+        self.violation_type = violation_type
+        super().__init__(f"Scope violation for {key!r} in {scope!r}: {violation_type}")
+
+
+class FactoryExecutionError(Exception):
+    """Wraps an exception raised by a factory body.
+
+    Only raised when ``wrap_factory_errors=True`` is set on the builder.
+    """
+
+    def __init__(
+        self,
+        key: Key,
+        original_exception: Exception,
+        resolution_path: Optional[List[Key]] = None,
+    ) -> None:
+        self.key = key
+        self.original_exception = original_exception
+        self.resolution_path = list(resolution_path or [])
+        super().__init__(f"Factory for {key!r} raised {original_exception!r}")
+
+    def __str__(self) -> str:
+        parts = [f"Factory for {self.key!r} raised:"]
+        parts.append(f"  {self.original_exception!r}")
+        if self.resolution_path:
+            parts.append("")
+            parts.append("Resolution path: " + " → ".join(map(repr, self.resolution_path)))
+        return "\n".join(parts)
+
+
+class ResourceFinalizationError(Exception):
+    """Raised when one or more yield providers fail to finalize.
+
+    Only raised when ``finalization_errors=True`` is set on the builder.
+    """
+
+    def __init__(self, errors: List[Tuple[Key, Exception]]) -> None:
+        self.errors = list(errors)
+        super().__init__(f"{len(self.errors)} resource(s) failed to finalize")
+
+    def __str__(self) -> str:
+        parts = ["Resource finalization failed:"]
+        for key, exc in self.errors:
+            parts.append(f"  {key!r}: {exc!r}")
+        return "\n".join(parts)
+
+
 class DuplicateKeyPolicy(Enum):
     """Strategy for handling duplicate key registration.
 
@@ -362,7 +559,7 @@ class LifetimePolicy:
     @classmethod
     def validate(cls, lifetime: str) -> None:
         if lifetime not in cls.known:
-            raise ValueError(f"Unknown lifetime: {lifetime!r}")
+            raise InvalidLifetimeError(lifetime)
 
 
 @dataclass(frozen=True)
@@ -391,6 +588,7 @@ class Rule:
     async_yield_provider: bool = False
     nested: bool = False
     scope: Optional[str] = None
+    registration_source: Optional[RegistrationSource] = None
     is_async: bool = False
 
     def __post_init__(self) -> None:
@@ -418,16 +616,18 @@ class RuleSet:
         True
     """
 
-    __slots__ = ("graph", "map", "version")
+    __slots__ = ("defer_cycle_check", "graph", "map", "version")
 
     def __init__(
         self,
         rules_map: Optional[Dict[Key, Rule]] = None,
         graph: Optional[Dict[Key, Tuple[Key, ...]]] = None,
+        defer_cycle_check: bool = False,
     ) -> None:
         """Initialize storage from optional existing map and graph."""
         self.map = dict(rules_map or {})
         self.graph = dict(graph or {})
+        self.defer_cycle_check = defer_cycle_check
         self.version = 0
 
     def add(self, key: Key, rule: Rule) -> None:
@@ -446,12 +646,13 @@ class RuleSet:
         old_graph = dict(self.graph)
         self.map[key] = rule
         self.graph[key] = tuple(rule.deps)
-        try:
-            self._check_cycle(key)
-        except CycleError:
-            self.map = old_map
-            self.graph = old_graph
-            raise
+        if not self.defer_cycle_check:
+            try:
+                self._check_cycle(key)
+            except CycleError:
+                self.map = old_map
+                self.graph = old_graph
+                raise
         self.version += 1
 
     def find(self, key: Key) -> Rule:
@@ -519,7 +720,7 @@ class RuleSet:
 
         def dfs(node: Key) -> None:
             if node in on_stack:
-                raise CycleError([*stack, node])
+                raise DependencyCycleError([*stack, node])
             if node in visited:
                 return
             visited.add(node)
@@ -558,10 +759,10 @@ class ResolveContext:
         self.container = container
         self.scope = scope or container
 
-    def get(self, key: Key) -> Any:
+    def get(self, key: Key, _scope_name: Optional[str] = None) -> Any:
         if isinstance(self.scope, Scope):
             return self.scope.get(key)
-        return self.container.get(key)
+        return self.container.get(key, _scope_name=_scope_name)
 
 
 class OverrideContext:
@@ -653,8 +854,8 @@ class Scope:
         self.container = container
         self.name = name
         self.cache: Dict[Key, Any] = {}
-        self._exit_stack: List[ExitStack] = []
-        self._async_exit_stack: List[AsyncExitStack] = []
+        self._exit_stack: List[Tuple[Key, ExitStack]] = []
+        self._async_exit_stack: List[Tuple[Key, AsyncExitStack]] = []
         self._depth = 0
 
     def get(self, key: Key) -> Any:
@@ -679,10 +880,10 @@ class Scope:
                 if "didn't yield" in str(exc):
                     raise YieldNotCalledError(key) from None
                 raise
-            self._exit_stack.append(stack)
+            self._exit_stack.append((key, stack))
             self.cache[key] = obj
             return obj
-        obj = self.container.get(key)
+        obj = self.container.get(key, _scope_name=self.name)
         self.cache[key] = obj
         return obj
 
@@ -699,12 +900,18 @@ class Scope:
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
-            for stack in self._exit_stack:
+            errors: List[Tuple[Key, Exception]] = []
+            for key, stack in self._exit_stack:
                 try:
                     stack.close()
-                except Exception:
-                    logger.exception("Error finalizing yield provider")
+                except Exception as exc:
+                    if self.container.config.finalization_errors:
+                        errors.append((key, exc))
+                    else:
+                        logger.exception("Error finalizing yield provider %r", key)
             self._exit_stack.clear()
+            if errors:
+                raise ResourceFinalizationError(errors)
 
 
 class AsyncScope(Scope):
@@ -735,15 +942,15 @@ class AsyncScope(Scope):
                 if "didn't yield" in str(exc):
                     raise YieldNotCalledError(key) from None
                 raise
-            self._async_exit_stack.append(stack)
+            self._async_exit_stack.append((key, stack))
             self.cache[key] = obj
             return obj
         if rule.yield_provider:
             raise TypeError(f"Sync yield provider {key!r} cannot be resolved in async scope")
         if rule.is_async:
-            obj = await self.container.aget(key)
+            obj = await self.container.aget(key, _scope_name=self.name)
         else:
-            obj = self.container.get(key)
+            obj = self.container.get(key, _scope_name=self.name)
         self.cache[key] = obj
         return obj
 
@@ -760,12 +967,18 @@ class AsyncScope(Scope):
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
-            for stack in self._async_exit_stack:
+            errors: List[Tuple[Key, Exception]] = []
+            for key, stack in self._async_exit_stack:
                 try:
                     await stack.aclose()
-                except Exception:
-                    logger.exception("Error finalizing yield provider")
+                except Exception as exc:
+                    if self.container.config.finalization_errors:
+                        errors.append((key, exc))
+                    else:
+                        logger.exception("Error finalizing yield provider %r", key)
             self._async_exit_stack.clear()
+            if errors:
+                raise ResourceFinalizationError(errors)
 
 
 class Container:
@@ -800,7 +1013,19 @@ class Container:
         self._visualize_cache: Dict[str, Any] = {}
         self._visualize_version = -1
 
-    def get(self, key: Key, qualifier: Optional[str] = None) -> Any:
+    def _enter_path(self, key: Key, path: Optional[List[Key]] = None) -> List[Key]:
+        current = path
+        if current is None:
+            current = _RESOLUTION_PATH.get()
+        if current is None:
+            current = []
+            _RESOLUTION_PATH.set(current)
+        current.append(key)
+        return current
+
+    def get(
+        self, key: Key, qualifier: Optional[str] = None, _scope_name: Optional[str] = None
+    ) -> Any:
         """Resolve a service by key.
 
         Returns the cached singleton if already resolved, otherwise resolves
@@ -825,44 +1050,95 @@ class Container:
         if lookup in self.single:
             return self.single[lookup]
 
-        with self.lock:
-            if lookup in self.single:
-                return self.single[lookup]
+        path = self._enter_path(lookup)
+        try:
+            if len(path) > 1 and lookup in path[:-1]:
+                idx = path.index(lookup)
+                raise DependencyCycleError(path[idx:])
 
-            try:
-                rule = self.config.ruleset.find(lookup)
-            except ServiceNotFoundError:
-                if self._is_injectable_key(lookup):
-                    from .auto_wiring import _rule_for
+            with self.lock:
+                if lookup in self.single:
+                    return self.single[lookup]
 
-                    self.config.ruleset.add(lookup, _rule_for(lookup))
+                try:
                     rule = self.config.ruleset.find(lookup)
-                elif qualifier is not None:
-                    raise UnregisteredDependencyError(key, qualifier) from None
-                else:
+                except ServiceNotFoundError:
+                    if self._is_injectable_key(lookup):
+                        from .auto_wiring import _rule_for
+
+                        self.config.ruleset.add(lookup, _rule_for(lookup))
+                        rule = self.config.ruleset.find(lookup)
+                    elif qualifier is not None:
+                        raise UnregisteredDependencyError(key, qualifier) from None
+                    elif len(path) > 1:
+                        src = self.config.ruleset.map.get(
+                            lookup, Rule(lookup, lambda: None)
+                        ).registration_source
+                        raise MissingDependencyError(
+                            lookup,
+                            path.copy(),
+                            scope=_scope_name,
+                            registration_source=src,
+                        ) from None
+                    else:
+                        raise
+                if rule.async_yield_provider:
+                    raise TypeError(f"Async yield provider {lookup!r} requires async scope")
+                if rule.is_async:
+                    raise AsyncDependencyInSyncContextError(lookup)
+                ctx = ResolveContext(self)
+                try:
+                    args = [ctx.get(dep, _scope_name=_scope_name) for dep in rule.deps]
+                except ServiceNotFoundError as exc:
+                    if self._is_injectable_key(lookup):
+                        from .auto_wiring import UnresolvableDependencyError
+
+                        raise UnresolvableDependencyError(lookup, exc.key) from None
+                    if isinstance(exc, MissingDependencyError):
+                        if exc.registration_source is not None:
+                            raise
+                        src = self.config.ruleset.map.get(
+                            lookup, Rule(lookup, lambda: None)
+                        ).registration_source
+                        if src is None:
+                            raise
+                        raise MissingDependencyError(
+                            exc.key,
+                            exc.resolution_path,
+                            scope=exc.scope or _scope_name,
+                            registration_source=src,
+                        ) from None
+                    if len(path) > 1:
+                        src = self.config.ruleset.map.get(
+                            lookup, Rule(lookup, lambda: None)
+                        ).registration_source
+                        raise MissingDependencyError(
+                            exc.key,
+                            path.copy(),
+                            scope=_scope_name,
+                            registration_source=src,
+                        ) from None
                     raise
-            if rule.async_yield_provider:
-                raise TypeError(f"Async yield provider {lookup!r} requires async scope")
-            if rule.is_async:
-                raise AsyncDependencyInSyncContextError(lookup)
-            ctx = ResolveContext(self)
-            try:
-                args = [ctx.get(dep) for dep in rule.deps]
-            except ServiceNotFoundError as exc:
-                if self._is_injectable_key(lookup):
-                    from .auto_wiring import UnresolvableDependencyError
+                try:
+                    obj = rule.make(*args)
+                except Exception as exc:
+                    if self.config.wrap_factory_errors:
+                        raise FactoryExecutionError(
+                            lookup,
+                            exc,
+                            path.copy(),
+                        ) from exc
+                    raise
+                if inspect.isawaitable(obj):
+                    raise SyncFactoryReturningAwaitableError(lookup)
 
-                    raise UnresolvableDependencyError(lookup, exc.key) from None
-                raise
-            obj = rule.make(*args)
-            if inspect.isawaitable(obj):
-                raise SyncFactoryReturningAwaitableError(lookup)
+                if rule.lifetime == "singleton":
+                    self.single[lookup] = obj
+                self._cache_nested_aliases(lookup, obj)
 
-            if rule.lifetime == "singleton":
-                self.single[lookup] = obj
-            self._cache_nested_aliases(lookup, obj)
-
-            return obj
+                return obj
+        finally:
+            path.pop()
 
     @staticmethod
     def _is_injectable_key(key: Key) -> bool:
@@ -888,6 +1164,8 @@ class Container:
         key: Key,
         qualifier: Optional[str] = None,
         _stacks: Optional[List[AsyncExitStack]] = None,
+        _scope_name: Optional[str] = None,
+        _path: Optional[List[Key]] = None,
     ) -> Any:
         """Resolve a service by key asynchronously.
 
@@ -917,59 +1195,105 @@ class Container:
         if lookup in self.single:
             return self.single[lookup]
 
+        path = self._enter_path(lookup, _path)
         try:
-            rule = self.config.ruleset.find(lookup)
-        except ServiceNotFoundError:
-            if self._is_injectable_key(lookup):
-                from .auto_wiring import _rule_for
+            if len(path) > 1 and lookup in path[:-1]:
+                idx = path.index(lookup)
+                raise DependencyCycleError(path[idx:])
 
-                self.config.ruleset.add(lookup, _rule_for(lookup))
+            try:
                 rule = self.config.ruleset.find(lookup)
-            elif qualifier is not None:
-                raise UnregisteredDependencyError(key, qualifier) from None
-            else:
-                raise
-        stacks = _stacks if _stacks is not None else []
-        try:
-            if rule.async_yield_provider:
-                stack = AsyncExitStack()
-                stacks.append(stack)
-                try:
-                    obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
-                except RuntimeError as exc:
-                    if "didn't yield" in str(exc):
-                        raise YieldNotCalledError(lookup) from None
+            except ServiceNotFoundError:
+                if self._is_injectable_key(lookup):
+                    from .auto_wiring import _rule_for
+
+                    self.config.ruleset.add(lookup, _rule_for(lookup))
+                    rule = self.config.ruleset.find(lookup)
+                elif qualifier is not None:
+                    raise UnregisteredDependencyError(key, qualifier) from None
+                elif len(path) > 1:
+                    src = self.config.ruleset.map.get(
+                        lookup, Rule(lookup, lambda: None)
+                    ).registration_source
+                    raise MissingDependencyError(
+                        lookup,
+                        path.copy(),
+                        scope=_scope_name,
+                        registration_source=src,
+                    ) from None
+                else:
                     raise
+            stacks = _stacks if _stacks is not None else []
+            try:
+                if rule.async_yield_provider:
+                    stack = AsyncExitStack()
+                    stacks.append(stack)
+                    try:
+                        obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
+                    except RuntimeError as exc:
+                        if "didn't yield" in str(exc):
+                            raise YieldNotCalledError(lookup) from None
+                        raise
+                    if rule.lifetime == "singleton":
+                        self.single[lookup] = obj
+                    self._cache_nested_aliases(lookup, obj)
+                    return obj
+                if rule.yield_provider:
+                    raise TypeError(f"Sync yield provider {lookup!r} cannot be resolved via aget")
+                levels = self._independent_levels(list(rule.deps))
+                if rule.deps and not levels:
+                    raise DependencyCycleError([lookup, *rule.deps])
+                args_by_key: Dict[Key, Any] = {}
+                for level in levels:
+                    resolved = await asyncio.gather(
+                        *(
+                            self.aget(
+                                dep,
+                                _stacks=stacks,
+                                _scope_name=_scope_name,
+                                _path=path,
+                            )
+                            for dep in level
+                        )
+                    )
+                    args_by_key.update(dict(zip(level, resolved)))
+                args = [args_by_key[dep] for dep in rule.deps]
+                try:
+                    obj = rule.make(*args)
+                except Exception as exc:
+                    if self.config.wrap_factory_errors:
+                        raise FactoryExecutionError(lookup, exc, path.copy()) from exc
+                    raise
+                if not rule.is_async and inspect.isawaitable(obj):
+                    raise SyncFactoryReturningAwaitableError(lookup)
+                if inspect.isawaitable(obj):
+                    try:
+                        obj = await obj
+                    except Exception as exc:
+                        if self.config.wrap_factory_errors:
+                            raise FactoryExecutionError(lookup, exc, path.copy()) from exc
+                        raise
+
                 if rule.lifetime == "singleton":
                     self.single[lookup] = obj
                 self._cache_nested_aliases(lookup, obj)
+
                 return obj
-            if rule.yield_provider:
-                raise TypeError(f"Sync yield provider {lookup!r} cannot be resolved via aget")
-            levels = self._independent_levels(list(rule.deps))
-            args_by_key: Dict[Key, Any] = {}
-            for level in levels:
-                resolved = await asyncio.gather(*(self.aget(dep, _stacks=stacks) for dep in level))
-                args_by_key.update(dict(zip(level, resolved)))
-            args = [args_by_key[dep] for dep in rule.deps]
-            obj = rule.make(*args)
-            if not rule.is_async and inspect.isawaitable(obj):
-                raise SyncFactoryReturningAwaitableError(lookup)
-            if inspect.isawaitable(obj):
-                obj = await obj
-
-            if rule.lifetime == "singleton":
-                self.single[lookup] = obj
-            self._cache_nested_aliases(lookup, obj)
-
-            return obj
-        except asyncio.CancelledError:
-            for stack in stacks:
-                try:
-                    await stack.aclose()
-                except Exception:
-                    logger.exception("Error finalizing yield provider")
-            raise ResolutionCancelledError(lookup) from None
+            except asyncio.CancelledError:
+                errors: List[Tuple[Key, Exception]] = []
+                for stack in stacks:
+                    try:
+                        await stack.aclose()
+                    except Exception as exc:
+                        if self.config.finalization_errors:
+                            errors.append((lookup, exc))
+                        else:
+                            logger.exception("Error finalizing yield provider %r", lookup)
+                if errors:
+                    raise ResourceFinalizationError(errors) from None
+                raise ResolutionCancelledError(lookup) from None
+        finally:
+            path.pop()
 
     async def get_many(self, keys: List[Key], parallel: bool = False) -> List[Any]:
         """Resolve multiple services, optionally in parallel.
@@ -1307,6 +1631,9 @@ class ContainerConfig:
 
     ruleset: RuleSet
     scope_policy: ScopePolicy = ScopePolicy.NAMED
+    track_sources: bool = False
+    wrap_factory_errors: bool = False
+    finalization_errors: bool = False
 
 
 class ContainerBuilder:
@@ -1324,12 +1651,24 @@ class ContainerBuilder:
         2
     """
 
-    __slots__ = ("duplicate_policy", "rules", "scope_policy")
+    __slots__ = (
+        "check_cycles_on_register",
+        "duplicate_policy",
+        "finalization_errors",
+        "rules",
+        "scope_policy",
+        "track_sources",
+        "wrap_factory_errors",
+    )
 
     def __init__(
         self,
         duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
         scope_policy: ScopePolicy = ScopePolicy.NAMED,
+        track_sources: bool = False,
+        wrap_factory_errors: bool = False,
+        finalization_errors: bool = False,
+        check_cycles_on_register: bool = True,
     ) -> None:
         """Initialize builder with optional policies.
 
@@ -1340,17 +1679,48 @@ class ContainerBuilder:
             >>> b.duplicate_policy
             <DuplicateKeyPolicy.FAIL: 'fail'>
         """
-        self.rules = RuleSet()
+        self.rules = RuleSet(defer_cycle_check=not check_cycles_on_register)
         self.duplicate_policy = duplicate_policy
         self.scope_policy = scope_policy
+        self.track_sources = track_sources
+        self.wrap_factory_errors = wrap_factory_errors
+        self.finalization_errors = finalization_errors
+        self.check_cycles_on_register = check_cycles_on_register
+
+    def _capture_source(self) -> Optional[RegistrationSource]:
+        if not self.track_sources:
+            return None
+        frame = inspect.currentframe()
+        try:
+            # _capture_source -> _register -> service/value/alias -> user
+            frame = frame.f_back if frame is not None else None
+            frame = frame.f_back if frame is not None else None
+            frame = frame.f_back if frame is not None else None
+            if frame is None:
+                return None
+            return RegistrationSource(
+                filename=frame.f_code.co_filename,
+                lineno=frame.f_lineno,
+                function_name=frame.f_code.co_name,
+            )
+        finally:
+            del frame
 
     def _register(self, key: Key, rule: Rule) -> None:
         """Add rule honoring the active duplicate policy."""
-        if key in self.rules.map and (self.duplicate_policy != DuplicateKeyPolicy.OVERWRITE):
+        source = self._capture_source()
+        existing = self.rules.map.get(key)
+        if existing is not None and (self.duplicate_policy != DuplicateKeyPolicy.OVERWRITE):
             if self.duplicate_policy == DuplicateKeyPolicy.FAIL:
-                raise DuplicateKeyError(key)
+                raise DuplicateRegistrationError(
+                    key,
+                    existing_source=existing.registration_source,
+                    new_source=source,
+                )
             # WARN
             logger.warning("Duplicate key %r registered; overwriting", key)
+        if source is not None:
+            object.__setattr__(rule, "registration_source", source)
         self.rules.add(key, rule)
 
     def service(
@@ -1472,4 +1842,12 @@ class ContainerBuilder:
                         missing.append((key, dep))
             if missing:
                 raise ContainerBuildError(missing)
-        return Container(ContainerConfig(self.rules, scope_policy=self.scope_policy))
+        return Container(
+            ContainerConfig(
+                self.rules,
+                scope_policy=self.scope_policy,
+                track_sources=self.track_sources,
+                wrap_factory_errors=self.wrap_factory_errors,
+                finalization_errors=self.finalization_errors,
+            )
+        )
