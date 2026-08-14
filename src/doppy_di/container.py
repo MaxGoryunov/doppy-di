@@ -829,6 +829,11 @@ class Scope:
     Scopes allow caching within a ``with`` block. All resolved values are
     cached until the scope exits.
 
+    Attributes:
+        APP: Application-wide scope name.
+        REQUEST: Per-request scope name.
+        SESSION: Per-session scope name.
+
     Examples:
         >>> builder = ContainerBuilder()
         >>> builder.service("x", lambda: object(), lifetime="transient")
@@ -839,6 +844,10 @@ class Scope:
         ...     a is b
         True
     """
+
+    APP = "app"
+    REQUEST = "request"
+    SESSION = "session"
 
     __slots__ = (
         "_async_exit_stack",
@@ -995,6 +1004,7 @@ class Container:
     """
 
     __slots__ = (
+        "_providers",
         "_visualize_cache",
         "_visualize_version",
         "config",
@@ -1004,7 +1014,9 @@ class Container:
         "single",
     )
 
-    def __init__(self, config: ContainerConfig) -> None:
+    def __init__(self, config: Optional[ContainerConfig] = None) -> None:
+        if config is None:
+            config = ContainerConfig(RuleSet())
         self.config = config
         self.single: Dict[Key, Any] = {}
         self.scopes: Dict[str, Scope] = {}
@@ -1012,6 +1024,26 @@ class Container:
         self.lock = threading.RLock()
         self._visualize_cache: Dict[str, Any] = {}
         self._visualize_version = -1
+        self._providers: Dict[str, Any] = {}
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if hasattr(value, "to_rules"):
+            for rule in value.to_rules(name):
+                self.config.ruleset.add(rule.key, rule)
+            self._providers[name] = value
+            return
+        object.__setattr__(self, name, value)
+
+    def __getattr__(self, name: str) -> Any:
+        from .providers import UnboundProvider
+
+        try:
+            providers = object.__getattribute__(self, "_providers")
+        except AttributeError:
+            return UnboundProvider(name)
+        if name in providers:
+            return providers[name]
+        return UnboundProvider(name)
 
     def _enter_path(self, key: Key, path: Optional[List[Key]] = None) -> List[Key]:
         current = path
