@@ -84,17 +84,49 @@ assert c.get("π") == 3.14
 
 ## 6. Overrides
 
-Temporarily replace a value for the duration of a `with` block.
+Temporarily replace one or more values for the duration of a `with` block.
+Overrides stack: nested `override()` blocks are LIFO, the last one wins, and
+exiting restores the original rules — even on exception.
 
 ```python
 builder = ContainerBuilder()
 builder.value("x", 1)
+builder.value("y", 2)
 c = builder.build()
 
+# single key
 with c.override("x", 99):
     assert c.get("x") == 99
 
+# dict of keys, nested stack
+with c.override({"x": 10, "y": 20}):
+    assert c.get("x") == 10
+    assert c.get("y") == 20
+    with c.override({"x": 30}):
+        assert c.get("x") == 30   # last wins
+    assert c.get("x") == 10
+
 assert c.get("x") == 1
+assert c.get("y") == 2
+```
+
+A callable override is treated as a factory and invoked on every resolution:
+
+```python
+with c.override({"x": lambda: 42}):
+    assert c.get("x") == 42
+```
+
+Overrides are validated on entry. Overriding a singleton with a scoped
+dependency or a resource with a plain value raises `ValueError`.
+
+For pytest, wrap the container in a fixture:
+
+```python
+@pytest.fixture
+def container_with_overrides(container):
+    with container.override({"db": fake_db}):
+        yield container
 ```
 
 ## 7. Duplicate-key policies
