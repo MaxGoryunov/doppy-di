@@ -765,22 +765,58 @@ class ResolveContext:
         return self.container.get(key, _scope_name=_scope_name)
 
 
+_unset = object()
+
+
+class OverrideLayer:
+    """Temporary stack-local override layer.
+
+    Holds override values keyed by lookup key. Lookups walk the layer stack
+    LIFO so the last ``override()`` wins. Values may be factories: a callable
+    (that is not a provider) is invoked on every ``get()``/``aget()``,
+    mirroring a transient service.
+
+    A layer validates every key on entry: keys must be registered, a
+    singleton rule cannot be overridden by a scoped dependency, and a
+    yield/resource rule cannot be overridden by a plain value.
+    """
+
+    __slots__ = ("values",)
+
+    def __init__(self, container: Container, values: Dict[Key, Any]) -> None:
+        self.values: Dict[Key, Any] = {}
+        for key, value in values.items():
+            if not container.config.ruleset.has(key):
+                raise UnregisteredTypeError(key)
+            rule = container.config.ruleset.find(key)
+            if _is_scoped_provider(value) and rule.lifetime == "singleton":
+                raise ValueError(f"Cannot override singleton {key!r} with scoped dependency")
+            resource = rule.yield_provider or rule.async_yield_provider
+            if resource and not callable(value):
+                raise ValueError(f"Cannot override resource {key!r} with non-resource value")
+            self.values[key] = value
+
+    def resolve(self, key: Key) -> Any:
+        value = self.values[key]
+        if callable(value) and not hasattr(value, "to_rules"):
+            return value()
+        return value
+
+
+def _is_scoped_provider(value: Any) -> bool:
+    return hasattr(value, "to_rules") and hasattr(value, "scope")
+
+
 class OverrideContext:
-    """Context manager for temporary overrides.
+    """Context manager for temporary stack-based overrides.
 
-    The override writes ``value`` into the container's singleton cache for
-    ``key`` for the duration of the ``with`` block. On exit the previous
-    state is restored via the ``had_old`` flag:
+    Entering pushes a validated :class:`OverrideLayer` onto the container's
+    layer stack. Lookups walk the stack LIFO, so the last ``override()``
+    wins. Exiting pops the layer and restores the original rules — even when
+    the ``with`` block raises.
 
-    * If ``key`` was already in the singleton cache before the override, the
-      old value is restored (``had_old is True``).
-    * If ``key`` was NOT yet resolved (absent from the cache), the entry is
-      removed on exit (``had_old is False``). The factory then runs fresh on
-      the next ``get``, producing a brand-new object rather than the one that
-      was active during the override.
-
-    This contract guarantees that overriding an unresolved singleton never
-    silently mutates the eventual resolved singleton.
+    Callable override values are treated as factories and invoked on every
+    resolution, mirroring a transient service.
 
     Examples:
         >>> builder = ContainerBuilder()
@@ -791,24 +827,23 @@ class OverrideContext:
         2
         >>> c.get("x")
         1
+
+        >>> with c.override({"x": 3}):
+        ...     c.get("x")
+        3
+        >>> c.get("x")
+        1
     """
 
-    __slots__ = ("container", "had_old", "key", "old", "value")
+    __slots__ = ("container", "values")
 
-    def __init__(self, container: Container, key: Key, value: Any) -> None:
+    def __init__(self, container: Container, values: Dict[Key, Any]) -> None:
         self.container = container
-        self.key = key
-        self.value = value
-        self.old: Any = None
-        self.had_old = False
+        self.values = dict(values)
 
     def __enter__(self) -> OverrideContext:
-        if self.key not in self.container.config.ruleset.map:
-            raise UnregisteredTypeError(self.key)
-        if self.key in self.container.single:
-            self.old = self.container.single[self.key]
-            self.had_old = True
-        self.container.single[self.key] = self.value
+        layer = OverrideLayer(self.container, self.values)
+        self.container._override_layers.append(layer)
         return self
 
     def __exit__(
@@ -817,10 +852,8 @@ class OverrideContext:
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
-        if self.had_old:
-            self.container.single[self.key] = self.old
-        else:
-            self.container.single.pop(self.key, None)
+        if self.container._override_layers:
+            self.container._override_layers.pop()
 
 
 class Scope:
@@ -1004,6 +1037,7 @@ class Container:
     """
 
     __slots__ = (
+        "_override_layers",
         "_providers",
         "_visualize_cache",
         "_visualize_version",
@@ -1025,6 +1059,7 @@ class Container:
         self._visualize_cache: Dict[str, Any] = {}
         self._visualize_version = -1
         self._providers: Dict[str, Any] = {}
+        self._override_layers: List[OverrideLayer] = []
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
@@ -1079,6 +1114,10 @@ class Container:
             42
         """
         lookup = (key, qualifier) if qualifier is not None else key
+        if self._override_layers:
+            overridden = self._resolve_override(lookup)
+            if overridden is not _unset:
+                return overridden
         if lookup in self.single:
             return self.single[lookup]
 
@@ -1224,6 +1263,12 @@ class Container:
             42
         """
         lookup = (key, qualifier) if qualifier is not None else key
+        if self._override_layers:
+            overridden = self._resolve_override(lookup)
+            if overridden is not _unset:
+                if inspect.isawaitable(overridden):
+                    overridden = await overridden
+                return overridden
         if lookup in self.single:
             return self.single[lookup]
 
@@ -1512,8 +1557,28 @@ class Container:
         self.scopes[internal] = scope
         return scope
 
-    def override(self, key: Key, value: Any) -> OverrideContext:
-        """Create a temporary override context for the given key.
+    def _resolve_override(self, lookup: Key) -> Any:
+        for layer in reversed(self._override_layers):
+            if lookup in layer.values:
+                return layer.resolve(lookup)
+        return _unset
+
+    def override(
+        self,
+        key: Union[Key, Dict[Key, Any]],
+        value: Any = None,
+        **overrides: Any,
+    ) -> OverrideContext:
+        """Create a temporary override context.
+
+        Supports both a single ``key``/``value`` pair and a dictionary of
+        overrides: ``container.override({"a": 1, "b": 2})``.
+
+        Nested overrides stack LIFO: the last ``override()`` wins. On
+        context exit the previous state is restored.
+
+        Callable override values are treated as factories and invoked on
+        every resolution.
 
         Examples:
             >>> builder = ContainerBuilder()
@@ -1522,8 +1587,20 @@ class Container:
             >>> ctx = c.override("x", 2)
             >>> isinstance(ctx, OverrideContext)
             True
+
+            >>> with c.override({"x": 3}):
+            ...     c.get("x")
+            3
+            >>> c.get("x")
+            1
         """
-        return OverrideContext(self, key, value)
+        if isinstance(key, dict):
+            values: Dict[Key, Any] = dict(key)
+        else:
+            values = {key: value}
+        for override_key, override_value in overrides.items():
+            values[override_key] = override_value
+        return OverrideContext(self, values)
 
     def visualize(self, format: str = "mermaid") -> Any:  # noqa: A002
         """Return a textual representation of the dependency graph.
