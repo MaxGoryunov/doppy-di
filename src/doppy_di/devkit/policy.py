@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol
 
-from ..container import Key, ResolveContext, RuleSet
+from ..container import Key, ResolveContext, RuleSetProtocol
 
 
 class OrderPolicy(Protocol):
@@ -24,10 +24,12 @@ class OrderPolicy(Protocol):
         True
     """
 
-    def before_resolve(self, key: Key, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
         """Run before object resolution."""
 
-    def after_resolve(self, key: Key, obj: Any, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def after_resolve(
+        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+    ) -> None:
         """Run after object resolution."""
 
 
@@ -39,13 +41,15 @@ class UnorderedPolicy:
         >>> policy = UnorderedPolicy()
         >>> isinstance(policy, UnorderedPolicy)
         True
-        >>> policy.before_resolve("x", RuleSet(), ResolveContext(container))
+        >>> policy.before_resolve("x", None, ResolveContext(container))
     """
 
-    def before_resolve(self, key: Key, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
         return None
 
-    def after_resolve(self, key: Key, obj: Any, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def after_resolve(
+        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+    ) -> None:
         return None
 
 
@@ -66,12 +70,14 @@ class ChildrenFirstPolicy:
     def __init__(self, nested: Optional[Dict[Key, List[str]]] = None) -> None:
         object.__setattr__(self, "nested", dict(nested or {}))
 
-    def before_resolve(self, key: Key, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
             ctx.get(child_key)
 
-    def after_resolve(self, key: Key, obj: Any, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def after_resolve(
+        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+    ) -> None:
         return None
 
 
@@ -90,10 +96,12 @@ class ParentFirstPolicy:
     def __init__(self, nested: Optional[Dict[Key, List[str]]] = None) -> None:
         object.__setattr__(self, "nested", dict(nested or {}))
 
-    def before_resolve(self, key: Key, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
         return None
 
-    def after_resolve(self, key: Key, obj: Any, ruleset: RuleSet, ctx: ResolveContext) -> None:
+    def after_resolve(
+        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+    ) -> None:
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
             ctx.get(child_key)
