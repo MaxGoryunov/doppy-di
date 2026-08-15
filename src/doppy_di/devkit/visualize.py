@@ -19,7 +19,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Set, Tuple
 
-from ..container import Key, RuleSet
+from ..container import Key, RuleSetProtocol
 
 
 def _display(key: Key) -> str:
@@ -32,7 +32,7 @@ def _safe_id(label: str) -> str:
     return re.sub(r"\W+", "_", label) or "node"
 
 
-def build_model(ruleset: RuleSet) -> Dict[str, Dict[str, Any]]:
+def build_model(ruleset: RuleSetProtocol) -> Dict[str, Dict[str, Any]]:
     """Build a dependency model from a rule set.
 
     Returns a dict keyed by display label with ``deps``, ``lifetime`` and
@@ -49,7 +49,7 @@ def build_model(ruleset: RuleSet) -> Dict[str, Dict[str, Any]]:
     return model
 
 
-def _cycle_edges(ruleset: RuleSet) -> Set[Tuple[Key, Key]]:
+def _cycle_edges(ruleset: RuleSetProtocol) -> Set[Tuple[Key, Key]]:
     """Return the set of edges that participate in a dependency cycle."""
     index: Dict[Key, int] = {}
     lowlink: Dict[Key, int] = {}
@@ -98,7 +98,7 @@ def _lifetime_class(lifetime: str) -> str:
     return "singleton" if lifetime == "singleton" else "transient"
 
 
-def render_mermaid(ruleset: RuleSet) -> str:
+def render_mermaid(ruleset: RuleSetProtocol) -> str:
     """Render the dependency graph as mermaid ``graph TD``."""
     lines = ["graph TD"]
     for key, rule in ruleset.map.items():
@@ -129,7 +129,7 @@ def render_mermaid(ruleset: RuleSet) -> str:
     return "\n".join(lines)
 
 
-def render_graphviz(ruleset: RuleSet) -> str:
+def render_graphviz(ruleset: RuleSetProtocol) -> str:
     """Render the dependency graph as Graphviz ``digraph``."""
     lines = ["digraph G {"]
     for key, rule in ruleset.map.items():
@@ -156,7 +156,7 @@ def render_graphviz(ruleset: RuleSet) -> str:
     return "\n".join(lines)
 
 
-def render_json(ruleset: RuleSet) -> Dict[str, Any]:
+def render_json(ruleset: RuleSetProtocol) -> Dict[str, Any]:
     """Render the dependency graph as a structured JSON dict."""
     cyclic = _cycle_edges(ruleset)
     data: Dict[str, Any] = {}
@@ -171,7 +171,7 @@ def render_json(ruleset: RuleSet) -> Dict[str, Any]:
     return data
 
 
-def render(ruleset: RuleSet, format: str) -> Any:  # noqa: A002
+def render(ruleset: RuleSetProtocol, format: str) -> Any:  # noqa: A002
     """Render the rule set in the requested format.
 
     Raises:

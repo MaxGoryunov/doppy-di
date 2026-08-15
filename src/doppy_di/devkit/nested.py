@@ -13,7 +13,7 @@ import logging
 from dataclasses import dataclass, replace
 from typing import Any, Dict, List, Protocol
 
-from ..container import Container, Key, NestedRuleError, Rule, RuleSet
+from ..container import Container, Key, NestedRuleError, Rule, RuleSetProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class NestedRules:
         self.map: Dict[Key, List[str]] = {}
         self.same_policy: NestedPolicy = SameValuePolicy()
 
-    def add_nested(self, parent: Key, child: str, rule: Rule, ruleset: RuleSet) -> None:
+    def add_nested(self, parent: Key, child: str, rule: Rule, ruleset: RuleSetProtocol) -> None:
         """Register a nested dependency for a parent key.
 
         The nested key ``(parent, child)`` is added to the shared ruleset and

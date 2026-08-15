@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import threading
 import uuid
@@ -630,6 +631,14 @@ class RuleSet:
         self.defer_cycle_check = defer_cycle_check
         self.version = 0
 
+    def copy(self) -> RuleSet:
+        """Return a deep copy of this RuleSet."""
+        return RuleSet(
+            rules_map=dict(self.map),
+            graph=dict(self.graph),
+            defer_cycle_check=self.defer_cycle_check,
+        )
+
     def add(self, key: Key, rule: Rule) -> None:
         """Add a rule and validate graph cycles.
 
@@ -733,6 +742,241 @@ class RuleSet:
             on_stack.remove(node)
 
         dfs(start)
+
+
+class RuleSetProtocol(Protocol):
+    """Structural type for rule storage used by containers.
+
+    Both :class:`RuleSet` and :class:`CompositeRuleSet` satisfy this
+    protocol, so child containers can layer rules over a parent without
+    changing the resolution hot path.
+    """
+
+    @property
+    def map(self) -> Dict[Key, Rule]: ...
+
+    @property
+    def graph(self) -> Dict[Key, Tuple[Key, ...]]: ...
+
+    @property
+    def version(self) -> Any: ...
+
+    @property
+    def defer_cycle_check(self) -> bool: ...
+
+    def add(self, key: Key, rule: Rule) -> None: ...
+
+    def find(self, key: Key) -> Rule: ...
+
+    def has(self, key: Key) -> bool: ...
+
+    def deps_of(self, key: Key) -> Tuple[Key, ...]: ...
+
+    def keys(self) -> Tuple[Key, ...]: ...
+
+    def _check_cycle(self, start: Key) -> None: ...
+
+
+class CompositeRuleSet:
+    """Rule storage that layers local rules over a parent rule set.
+
+    Reads delegate to the parent when a key is not overridden locally, so
+    rules added to the parent after the child was created stay visible.
+    Writes go only to the local layer, leaving the parent untouched.
+
+    The merged view is cached and invalidated when the parent version
+    changes, so repeated reads are cheap.
+
+    Examples:
+        >>> parent = RuleSet()
+        >>> parent.add("db", Rule("db", lambda: "base-db"))
+        >>> child = CompositeRuleSet(parent)
+        >>> child.add("extra", Rule("extra", lambda: 1))
+        >>> child.find("db").key
+        'db'
+        >>> child.find("extra").key
+        'extra'
+    """
+
+    __slots__ = (
+        "defer_cycle_check",
+        "graph_cache",
+        "map_cache",
+        "own_graph",
+        "own_map",
+        "own_version",
+        "parent",
+        "parent_version_seen",
+    )
+
+    def __init__(
+        self,
+        parent: RuleSetProtocol,
+        defer_cycle_check: bool = False,
+    ) -> None:
+        """Initialize a composite rule set over ``parent``."""
+        self.parent = parent
+        self.own_map: Dict[Key, Rule] = {}
+        self.own_graph: Dict[Key, Tuple[Key, ...]] = {}
+        self.defer_cycle_check = defer_cycle_check
+        self.own_version = 0
+        self.parent_version_seen: Optional[int] = None
+        self.map_cache: Optional[Dict[Key, Rule]] = None
+        self.graph_cache: Optional[Dict[Key, Tuple[Key, ...]]] = None
+
+    @property
+    def map(self) -> Dict[Key, Rule]:
+        """Return the merged rule map (own rules win)."""
+        if self.map_cache is None or self.parent_version_seen != self.parent.version:
+            merged = dict(self.parent.map)
+            merged.update(self.own_map)
+            self.map_cache = merged
+            self.parent_version_seen = self.parent.version
+        return self.map_cache
+
+    @property
+    def graph(self) -> Dict[Key, Tuple[Key, ...]]:
+        """Return the merged dependency graph (own edges win)."""
+        if self.graph_cache is None or self.parent_version_seen != self.parent.version:
+            merged = dict(self.parent.graph)
+            merged.update(self.own_graph)
+            self.graph_cache = merged
+            self.parent_version_seen = self.parent.version
+        return self.graph_cache
+
+    @property
+    def version(self) -> Tuple[int, int]:
+        """Return ``(parent_version, own_version)`` for cache invalidation."""
+        return (self.parent.version, self.own_version)
+
+    def add(self, key: Key, rule: Rule) -> None:
+        """Add a rule to the local layer and validate graph cycles."""
+        old_map = dict(self.own_map)
+        old_graph = dict(self.own_graph)
+        self.own_map[key] = rule
+        self.own_graph[key] = tuple(rule.deps)
+        self.map_cache = None
+        self.graph_cache = None
+        if not self.defer_cycle_check:
+            try:
+                self._check_cycle(key)
+            except CycleError:
+                self.own_map = old_map
+                self.own_graph = old_graph
+                self.map_cache = None
+                self.graph_cache = None
+                raise
+        self.own_version += 1
+
+    def find(self, key: Key) -> Rule:
+        """Return a rule by key, falling back to the parent."""
+        try:
+            return self.map[key]
+        except KeyError:
+            raise ServiceNotFoundError(key) from None
+
+    def has(self, key: Key) -> bool:
+        """Check whether a key is registered locally or in the parent."""
+        return key in self.map
+
+    def deps_of(self, key: Key) -> Tuple[Key, ...]:
+        """Return direct dependencies for a key."""
+        return self.graph.get(key, ())
+
+    def keys(self) -> Tuple[Key, ...]:
+        """Return all registered keys (parent and local)."""
+        return tuple(self.map.keys())
+
+    def _check_cycle(self, start: Key) -> None:
+        """Check graph cycles from the given start node."""
+        stack: List[Key] = []
+        on_stack: set[Key] = set()
+        visited: set[Key] = set()
+
+        def dfs(node: Key) -> None:
+            if node in on_stack:
+                raise DependencyCycleError([*stack, node])
+            if node in visited:
+                return
+            visited.add(node)
+            on_stack.add(node)
+            stack.append(node)
+            for dep in self.graph.get(node, ()):
+                if dep in self.map:
+                    dfs(dep)
+            stack.pop()
+            on_stack.remove(node)
+
+        dfs(start)
+
+
+def _rule_signature(rule: Rule) -> Tuple[Any, ...]:
+    """Return comparable rule metadata, ignoring the factory callable.
+
+    The factory closure cells are included when available, so two value
+    rules with different captured constants report as changed. Module-level
+    lambdas are compared via their bytecode constants.
+    """
+    captured: Optional[Tuple[Any, ...]] = None
+    closure = getattr(rule.make, "__closure__", None)
+    if closure:
+        values: List[Any] = []
+        for cell in closure:
+            try:
+                values.append(cell.cell_contents)
+            except ValueError:
+                values.append(None)
+        captured = tuple(values)
+    else:
+        code = getattr(rule.make, "__code__", None)
+        if code is not None:
+            captured = tuple(getattr(code, "co_consts", ()))
+    return (
+        rule.lifetime,
+        rule.deps,
+        rule.scope,
+        rule.yield_provider,
+        rule.async_yield_provider,
+        rule.nested,
+        captured,
+    )
+
+
+@dataclass(frozen=True)
+class DiffReport:
+    """Differences between two containers' effective rule sets.
+
+    Attributes:
+        added: Keys present in ``other`` but not in ``self``.
+        removed: Keys present in ``self`` but not in ``other``.
+        changed: Keys present in both with different rules.
+
+    Examples:
+        >>> report = DiffReport(added=("c",), changed=("a",))
+        >>> "a" in report
+        True
+        >>> "c" in report
+        True
+        >>> "b" in report
+        False
+    """
+
+    added: Tuple[Key, ...] = ()
+    removed: Tuple[Key, ...] = ()
+    changed: Tuple[Key, ...] = ()
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.added or key in self.removed or key in self.changed
+
+    def __str__(self) -> str:
+        lines: List[str] = []
+        for key in self.added:
+            lines.append(f"+ {key!r}")
+        for key in self.removed:
+            lines.append(f"- {key!r}")
+        for key in self.changed:
+            lines.append(f"~ {key!r}")
+        return "\n".join(lines)
 
 
 class ResolveContext:
@@ -1602,6 +1846,193 @@ class Container:
             values[override_key] = override_value
         return OverrideContext(self, values)
 
+    def value(self, key: Key, value: Any) -> Self:
+        """Register a constant value on this container.
+
+        Child containers inherit this rule; overriding it on a child does
+        not touch the parent.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> container = builder.build()
+            >>> container.value("env", "base")
+            >>> container.get("env")
+            'base'
+        """
+
+        def make_value() -> Any:
+            return value
+
+        self.config.ruleset.add(
+            key,
+            Rule(
+                key=key,
+                make=make_value,
+                lifetime="singleton",
+                deps=(),
+            ),
+        )
+        return self
+
+    def service(
+        self,
+        key: Key,
+        make: Callable[..., Any],
+        lifetime: Lifetime = "transient",
+        deps: Optional[List[Key]] = None,
+        qualifier: Optional[str] = None,
+        scope: Optional[str] = None,
+    ) -> Self:
+        """Register a factory service on this container.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> container = builder.build()
+            >>> container.service("a", lambda: 1)
+            >>> container.get("a")
+            1
+        """
+        lookup = (key, qualifier) if qualifier is not None else key
+        rule = Rule(
+            key=lookup,
+            make=make,
+            lifetime=lifetime,
+            deps=tuple(deps or ()),
+            scope=scope,
+        )
+        self.config.ruleset.add(lookup, rule)
+        return self
+
+    def child(self, name: Optional[str] = None) -> Container:
+        """Return a new container layered over this one.
+
+        The child inherits the parent rules and can add or override rules
+        without mutating the parent. Rules added to the parent after the
+        child was created stay visible to the child.
+
+        Args:
+            name: Optional profile name stored in ``config.profile``.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("db", "base-db")
+            >>> parent = builder.build()
+            >>> child = parent.child()
+            >>> child.value("db", "child-db")
+            >>> child.get("db")
+            'child-db'
+            >>> parent.get("db")
+            'base-db'
+        """
+        composite = CompositeRuleSet(self.config.ruleset)
+        return Container(
+            ContainerConfig(
+                composite,
+                scope_policy=self.config.scope_policy,
+                track_sources=self.config.track_sources,
+                wrap_factory_errors=self.config.wrap_factory_errors,
+                finalization_errors=self.config.finalization_errors,
+                profile=name,
+            )
+        )
+
+    def with_profile(
+        self,
+        name: str,
+        overrides: Optional[Dict[Key, Any]] = None,
+    ) -> Container:
+        """Return a derived child container with the given overrides applied.
+
+        Each override is registered as a singleton value on the child. Keys
+        must already exist in the effective rule set; unknown keys raise
+        :class:`UnregisteredTypeError`.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("env", "base")
+            >>> container = builder.build()
+            >>> prod = container.with_profile("prod", {"env": "prod"})
+            >>> container.get("env")
+            'base'
+            >>> prod.get("env")
+            'prod'
+            >>> prod.config.profile
+            'prod'
+        """
+        derived = self.child(name)
+        for key, item in (overrides or {}).items():
+            if not derived.has(key):
+                raise UnregisteredTypeError(key)
+            derived.value(key, item)
+        return derived
+
+    def diff(self, other: Container) -> DiffReport:
+        """Return rule differences between this container and ``other``.
+
+        Added keys exist only in ``other``, removed keys exist only in this
+        container, changed keys exist in both with different rule metadata
+        (lifetime, deps, scope, resource flags).
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("a", 1)
+            >>> base = builder.build()
+            >>> modded = base.child()
+            >>> modded.value("b", 2)
+            >>> report = base.diff(modded)
+            >>> "b" in report.added
+            True
+        """
+        own = self.config.ruleset.map
+        other_map = other.config.ruleset.map
+        added: List[Key] = []
+        removed: List[Key] = []
+        changed: List[Key] = []
+        for key in other_map:
+            if key not in own:
+                added.append(key)
+            elif _rule_signature(own[key]) != _rule_signature(other_map[key]):
+                changed.append(key)
+        for key in own:
+            if key not in other_map:
+                removed.append(key)
+        return DiffReport(
+            added=tuple(added),
+            removed=tuple(removed),
+            changed=tuple(changed),
+        )
+
+    def export_config(self, format: str = "json") -> str:  # noqa: A002
+        """Export the effective configuration as a JSON string.
+
+        Includes the container profile and a rule table with lifetime, deps,
+        scope, and resource flags. Non-string keys are rendered via ``repr``.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("a", 1)
+            >>> container = builder.build()
+            >>> out = container.export_config()
+            >>> '"a"' in out
+            True
+        """
+        if format != "json":
+            raise ValueError(f"Unsupported export format: {format!r}")
+        rules: Dict[str, Any] = {}
+        for key, rule in self.config.ruleset.map.items():
+            rules[repr(key)] = {
+                "lifetime": rule.lifetime,
+                "deps": [repr(dep) for dep in rule.deps],
+                "scope": rule.scope,
+                "yield": rule.yield_provider or rule.async_yield_provider,
+                "nested": rule.nested,
+            }
+        payload = {
+            "profile": self.config.profile,
+            "rules": rules,
+        }
+        return json.dumps(payload, sort_keys=True, indent=2)
+
     def visualize(self, format: str = "mermaid") -> Any:  # noqa: A002
         """Return a textual representation of the dependency graph.
 
@@ -1738,11 +2169,12 @@ class ContainerConfig:
         <ScopePolicy.NAMED: 'named'>
     """
 
-    ruleset: RuleSet
+    ruleset: RuleSetProtocol
     scope_policy: ScopePolicy = ScopePolicy.NAMED
     track_sources: bool = False
     wrap_factory_errors: bool = False
     finalization_errors: bool = False
+    profile: Optional[str] = None
 
 
 class ContainerBuilder:
