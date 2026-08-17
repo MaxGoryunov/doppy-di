@@ -170,6 +170,64 @@ builder.service("a", lambda b: b, deps=["b"])
 builder.service("b", lambda a: a, deps=["a"])  # raises CycleError
 ```
 
+## 10. Compile / plan mode
+
+Compile the dependency graph once into an immutable `ExecutionPlan`:
+
+```python
+from doppy_di import CompilePolicy, ContainerBuilder, ExecutionPlan
+
+builder = ContainerBuilder()
+builder.value("a", 1)
+builder.service("b", lambda a: a + 1, deps=["a"])
+container = builder.build()
+
+plan = container.compile()
+assert plan.get("b") == 2
+```
+
+`compile()` validates the full graph up front: missing dependencies raise
+`MissingDependencyError`, cycles raise `DependencyCycleError`. The plan is
+immutable and resolves through the live container, so lifetimes, singleton
+caches and scopes keep identical semantics.
+
+### Override policy
+
+Compiler is opt-in policy.
+
+```python
+# ALLOW_OVERRIDE (default): overrides still apply through the live container
+builder = ContainerBuilder(compile_policy=CompilePolicy.ALLOW_OVERRIDE)
+container = builder.build()
+plan = container.compile()
+with container.override("a", 10):
+    assert plan.get("b") == 11
+
+# STRICT: after compile() the container rejects further overrides
+strict = ContainerBuilder(compile_policy=CompilePolicy.STRICT).build()
+strict.compile()
+strict.override("x", 1)  # raises RuntimeError
+```
+
+### Serialization
+
+Plans persist graph topology, rule metadata and resolved singletons to JSON:
+
+```python
+data = plan.serialize()
+restored = ExecutionPlan.deserialize(data)
+assert restored.get("a") == 1
+```
+
+Factories are not serialized. After deserialization only registered singleton
+values resolve; factory-backed keys raise `ServiceNotFoundError`. Use
+module-level factory functions for true cross-process plan caching.
+
+### Zero overhead
+
+`compile()` is fully opt-in. If it is never called, no plan is built and no
+extra work happens at resolution time.
+
 ## Devkit extensions
 
 ### ValidatingContainer

@@ -9,6 +9,7 @@ from .auto_wiring import (
 from .container import (
     AsyncDependencyInSyncContextError,
     AsyncScope,
+    CompilePolicy,
     CompositeRuleSet,
     Container,
     ContainerBuilder,
@@ -63,11 +64,13 @@ from .devkit import (
     ValidationRunner,
 )
 from .inject import Depends, inject
+from .plan import ExecutionPlan
 
 __all__ = [
     "AsyncDependencyInSyncContextError",
     "AsyncScope",
     "ChildrenFirstPolicy",
+    "CompilePolicy",
     "CompositeRuleSet",
     "Container",
     "ContainerBuilder",
@@ -80,6 +83,7 @@ __all__ = [
     "DuplicateKeyError",
     "DuplicateKeyPolicy",
     "DuplicateRegistrationError",
+    "ExecutionPlan",
     "Factory",
     "FactoryExecutionError",
     "InvalidFactoryError",

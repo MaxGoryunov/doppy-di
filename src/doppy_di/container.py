@@ -45,7 +45,10 @@ from typing import (
     runtime_checkable,
 )
 
-from typing_extensions import Self, TypeAlias
+from typing_extensions import TYPE_CHECKING, Self, TypeAlias
+
+if TYPE_CHECKING:
+    from .plan import ExecutionPlan
 
 logger = logging.getLogger("doppy_di.container")
 
@@ -521,10 +524,24 @@ class DuplicateKeyPolicy(Enum):
     WARN = "warn"
 
 
+class CompilePolicy(Enum):
+    """Strategy for resolving rules after a plan is compiled.
+
+    ALLOW_OVERRIDE (default): the compiled plan delegates to the live container,
+        so later ``override()`` calls are honoured.
+    STRICT: once ``compile()`` is called, any ``override()`` call on the
+        container raises ``RuntimeError`` because the plan was snapshot immutable.
+    """
+
+    ALLOW_OVERRIDE = "allow_override"
+    STRICT = "strict"
+
+
 class ScopePolicy(Enum):
     """Strategy for resolving scopes by name.
 
     NAMED: reuse the same Scope object for the same name (current default).
+
     UNIQUE: return a fresh Scope per call, stored under a unique internal
             key so its cache never leaks across calls even if __exit__
             is forgotten.
@@ -1028,6 +1045,11 @@ class OverrideLayer:
     __slots__ = ("values",)
 
     def __init__(self, container: Container, values: Dict[Key, Any]) -> None:
+        if (
+            container.config.compile_policy == CompilePolicy.STRICT
+            and getattr(container, "_compiled_plan", None) is not None
+        ):
+            raise RuntimeError("Cannot override after compile() under CompilePolicy.STRICT")
         self.values: Dict[Key, Any] = {}
         for key, value in values.items():
             if not container.config.ruleset.has(key):
@@ -1281,6 +1303,7 @@ class Container:
     """
 
     __slots__ = (
+        "_compiled_plan",
         "_override_layers",
         "_providers",
         "_visualize_cache",
@@ -1304,6 +1327,7 @@ class Container:
         self._visualize_version = -1
         self._providers: Dict[str, Any] = {}
         self._override_layers: List[OverrideLayer] = []
+        self._compiled_plan: Optional["ExecutionPlan"] = None
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
@@ -2155,6 +2179,47 @@ class Container:
             return None
         return errors
 
+    def compile(
+        self,
+        copy_parent_rules: bool = True,
+    ) -> "ExecutionPlan":
+        """Compile the dependency graph into an immutable execution plan.
+
+        Computes a topological ordering of the registered rules, validates the
+        full graph (missing dependencies raise :class:`MissingDependencyError`;
+        cycles raise :class:`DependencyCycleError`) and returns an
+        :class:`ExecutionPlan`. The plan delegates resolution to this container,
+        so lifetimes, caches and scopes keep identical semantics.
+
+        The plan is immutable and can be cached or serialized. If
+        ``compile()`` is never called there is zero overhead.
+
+        When ``copy_parent_rules`` is True (default) and this container is a
+        child with a :class:`CompositeRuleSet`, a merged snapshot of the
+        parent and local rules is taken so the plan is stable even if the
+        parent is mutated later.
+
+        Raises:
+            MissingDependencyError: If a rule depends on an unregistered key.
+            DependencyCycleError: If the graph contains a cycle.
+            ContainerBuildError: If multiple missing dependencies are found.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.service("b", lambda a: a + 1, deps=["a"])
+            >>> builder.value("a", 1)
+            >>> container = builder.build()
+            >>> plan = container.compile()
+            >>> plan.get("b")
+            2
+        """
+        from .plan import ExecutionPlan
+
+        plan = ExecutionPlan.from_container(self, copy_parent_rules=copy_parent_rules)
+        if self.config.compile_policy == CompilePolicy.STRICT:
+            object.__setattr__(self, "_compiled_plan", plan)
+        return plan
+
 
 @dataclass(frozen=True)
 class ContainerConfig:
@@ -2175,10 +2240,12 @@ class ContainerConfig:
     wrap_factory_errors: bool = False
     finalization_errors: bool = False
     profile: Optional[str] = None
+    compile_policy: CompilePolicy = CompilePolicy.ALLOW_OVERRIDE
 
 
 class ContainerBuilder:
     """Builder for a container.
+
 
     Provides methods to register services, values, and aliases, then
     produce a ready-to-use Container.
@@ -2194,6 +2261,7 @@ class ContainerBuilder:
 
     __slots__ = (
         "check_cycles_on_register",
+        "compile_policy",
         "duplicate_policy",
         "finalization_errors",
         "rules",
@@ -2206,6 +2274,7 @@ class ContainerBuilder:
         self,
         duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
         scope_policy: ScopePolicy = ScopePolicy.NAMED,
+        compile_policy: CompilePolicy = CompilePolicy.ALLOW_OVERRIDE,
         track_sources: bool = False,
         wrap_factory_errors: bool = False,
         finalization_errors: bool = False,
@@ -2223,6 +2292,7 @@ class ContainerBuilder:
         self.rules = RuleSet(defer_cycle_check=not check_cycles_on_register)
         self.duplicate_policy = duplicate_policy
         self.scope_policy = scope_policy
+        self.compile_policy = compile_policy
         self.track_sources = track_sources
         self.wrap_factory_errors = wrap_factory_errors
         self.finalization_errors = finalization_errors
@@ -2387,6 +2457,7 @@ class ContainerBuilder:
             ContainerConfig(
                 self.rules,
                 scope_policy=self.scope_policy,
+                compile_policy=self.compile_policy,
                 track_sources=self.track_sources,
                 wrap_factory_errors=self.wrap_factory_errors,
                 finalization_errors=self.finalization_errors,
