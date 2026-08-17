@@ -121,3 +121,37 @@ chaining:
 builder = ContainerBuilder()
 builder.value("x", 1).service("y", lambda: 2).alias("z", "x")
 container = builder.build()
+
+## Compile / plan mode
+
+`Container.compile()` returns an immutable `ExecutionPlan` that captures a
+topological ordering of the registered rules. The plan validates the graph up
+front (raising `MissingDependencyError` for unregistered dependencies and
+`DependencyCycleError` for cycles), then resolves through the live container so
+lifetimes, singleton caches and scopes keep identical semantics. The feature is
+fully opt-in: if `compile()` is never called there is zero overhead.
+
+```python
+from doppy_di import CompilePolicy, ContainerBuilder
+
+builder = ContainerBuilder(compile_policy=CompilePolicy.ALLOW_OVERRIDE)
+builder.value("a", 1)
+builder.service("b", lambda a: a + 1, deps=["a"])
+
+container = builder.build()
+plan = container.compile()
+plan.get("b")  # 2
+
+# ALLOW_OVERRIDE: overrides still apply through the live container
+with container.override("a", 10):
+    plan.get("b")  # 11
+
+# STRICT: after compile() the container rejects further overrides
+strict = ContainerBuilder(compile_policy=CompilePolicy.STRICT).build()
+strict.compile()
+# strict.override("a", 1)  # raises RuntimeError
+```
+
+`ExecutionPlan.serialize()` / `ExecutionPlan.deserialize()` persist the graph
+topology, rule metadata and resolved singletons to JSON for caching or
+cross-process reuse.
