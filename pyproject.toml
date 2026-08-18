@@ -54,6 +54,9 @@ aiogram = [
 typer = [
     "typer",
 ]
+otel = [
+    "opentelemetry-api>=1.20",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/doppy_di"]

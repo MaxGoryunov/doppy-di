@@ -18,6 +18,7 @@ import inspect
 import json
 import logging
 import threading
+import time
 import uuid
 from contextlib import (
     AsyncExitStack,
@@ -73,6 +74,8 @@ class KeyProtocol(Protocol):
 
 Key = Union[str, type, KeyProtocol, Tuple[Any, str]]
 Lifetime = str
+
+TracerFn = Callable[[Key, float, bool, Optional[str]], None]
 
 P = ParamSpec("P")
 T = TypeVar("T", covariant=True)
@@ -1178,9 +1181,12 @@ class Scope:
             1
         """
         if key in self.cache:
+            self.container._trace(key, 0.0, True, self.name)
             return self.cache[key]
         rule = self.container.config.ruleset.find(key)
         if rule.yield_provider:
+            started = self.container._tracer is not None
+            start = time.perf_counter() if started else 0.0
             stack = ExitStack()
             try:
                 obj = stack.enter_context(contextmanager(rule.make)())
@@ -1188,6 +1194,8 @@ class Scope:
                 if "didn't yield" in str(exc):
                     raise YieldNotCalledError(key) from None
                 raise
+            if started:
+                self.container._trace(key, time.perf_counter() - start, False, self.name)
             self._exit_stack.append((key, stack))
             self.cache[key] = obj
             return obj
@@ -1240,9 +1248,12 @@ class AsyncScope(Scope):
     async def get(self, key: Key) -> Any:
         """Resolve key from scope cache or underlying container."""
         if key in self.cache:
+            self.container._trace(key, 0.0, True, self.name)
             return self.cache[key]
         rule = self.container.config.ruleset.find(key)
         if rule.async_yield_provider:
+            started = self.container._tracer is not None
+            start = time.perf_counter() if started else 0.0
             stack = AsyncExitStack()
             try:
                 obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
@@ -1250,6 +1261,8 @@ class AsyncScope(Scope):
                 if "didn't yield" in str(exc):
                     raise YieldNotCalledError(key) from None
                 raise
+            if started:
+                self.container._trace(key, time.perf_counter() - start, False, self.name)
             self._async_exit_stack.append((key, stack))
             self.cache[key] = obj
             return obj
@@ -1306,6 +1319,7 @@ class Container:
         "_compiled_plan",
         "_override_layers",
         "_providers",
+        "_tracer",
         "_visualize_cache",
         "_visualize_version",
         "config",
@@ -1328,6 +1342,7 @@ class Container:
         self._providers: Dict[str, Any] = {}
         self._override_layers: List[OverrideLayer] = []
         self._compiled_plan: Optional["ExecutionPlan"] = None
+        self._tracer: Optional[TracerFn] = None
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
@@ -1358,6 +1373,41 @@ class Container:
         current.append(key)
         return current
 
+    def set_tracer(self, tracer_fn: Optional[TracerFn]) -> None:
+        """Set a tracer callback or disable tracing with ``None``.
+
+        The callback receives ``(key, duration, cache_hit, scope)`` after
+        every successful resolution. When no tracer is set there is no
+        timing and no dispatch, so overhead is zero.
+
+        Args:
+            tracer_fn: Callback receiving trace events, or ``None`` to
+                disable tracing.
+
+        Examples:
+            >>> events = []
+            >>> builder = ContainerBuilder()
+            >>> builder.value("a", 1)
+            >>> container = builder.build()
+            >>> container.set_tracer(lambda *args: events.append(args))
+            >>> container.get("a")
+            1
+            >>> len(events)
+            1
+            >>> container.set_tracer(None)
+            >>> container.get("a")
+            1
+            >>> len(events)
+            1
+        """
+        self._tracer = tracer_fn
+
+    def _trace(self, key: Key, duration: float, cache_hit: bool, scope: Optional[str]) -> None:
+        """Dispatch a trace event when a tracer is configured."""
+        tracer = self._tracer
+        if tracer is not None:
+            tracer(key, duration, cache_hit, scope)
+
     def get(
         self, key: Key, qualifier: Optional[str] = None, _scope_name: Optional[str] = None
     ) -> Any:
@@ -1382,11 +1432,17 @@ class Container:
             42
         """
         lookup = (key, qualifier) if qualifier is not None else key
+        started = self._tracer is not None
+        start = time.perf_counter() if started else 0.0
         if self._override_layers:
             overridden = self._resolve_override(lookup)
             if overridden is not _unset:
+                if started:
+                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
                 return overridden
         if lookup in self.single:
+            if started:
+                self._trace(lookup, time.perf_counter() - start, True, _scope_name)
             return self.single[lookup]
 
         path = self._enter_path(lookup)
@@ -1397,6 +1453,8 @@ class Container:
 
             with self.lock:
                 if lookup in self.single:
+                    if started:
+                        self._trace(lookup, time.perf_counter() - start, True, _scope_name)
                     return self.single[lookup]
 
                 try:
@@ -1475,6 +1533,9 @@ class Container:
                     self.single[lookup] = obj
                 self._cache_nested_aliases(lookup, obj)
 
+                if started:
+                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
+
                 return obj
         finally:
             path.pop()
@@ -1531,13 +1592,19 @@ class Container:
             42
         """
         lookup = (key, qualifier) if qualifier is not None else key
+        started = self._tracer is not None
+        start = time.perf_counter() if started else 0.0
         if self._override_layers:
             overridden = self._resolve_override(lookup)
             if overridden is not _unset:
                 if inspect.isawaitable(overridden):
                     overridden = await overridden
+                if started:
+                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
                 return overridden
         if lookup in self.single:
+            if started:
+                self._trace(lookup, time.perf_counter() - start, True, _scope_name)
             return self.single[lookup]
 
         path = self._enter_path(lookup, _path)
@@ -1582,6 +1649,8 @@ class Container:
                     if rule.lifetime == "singleton":
                         self.single[lookup] = obj
                     self._cache_nested_aliases(lookup, obj)
+                    if started:
+                        self._trace(lookup, time.perf_counter() - start, False, _scope_name)
                     return obj
                 if rule.yield_provider:
                     raise TypeError(f"Sync yield provider {lookup!r} cannot be resolved via aget")
@@ -1622,6 +1691,9 @@ class Container:
                 if rule.lifetime == "singleton":
                     self.single[lookup] = obj
                 self._cache_nested_aliases(lookup, obj)
+
+                if started:
+                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
 
                 return obj
             except asyncio.CancelledError:
@@ -1949,7 +2021,7 @@ class Container:
             'base-db'
         """
         composite = CompositeRuleSet(self.config.ruleset)
-        return Container(
+        child_container = Container(
             ContainerConfig(
                 composite,
                 scope_policy=self.config.scope_policy,
@@ -1959,6 +2031,8 @@ class Container:
                 profile=name,
             )
         )
+        child_container._tracer = self._tracer
+        return child_container
 
     def with_profile(
         self,
