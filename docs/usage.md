@@ -228,6 +228,53 @@ module-level factory functions for true cross-process plan caching.
 `compile()` is fully opt-in. If it is never called, no plan is built and no
 extra work happens at resolution time.
 
+## 11. Observability / tracing
+
+Set a tracer callback to observe every resolution. The callback receives
+`(key, duration, cache_hit, scope)` after each successful `get()`/`aget()`.
+
+```python
+events = []
+
+def tracer(key, duration, cache_hit, scope):
+    events.append((key, duration, cache_hit, scope))
+
+builder = ContainerBuilder()
+builder.value("a", 1)
+container = builder.build()
+container.set_tracer(tracer)
+
+container.get("a")
+container.get("a")  # cache hit
+
+assert events[0] == ("a", _, False, None)  # miss
+assert events[1] == ("a", _, True, None)   # hit
+```
+
+Pass `set_tracer(None)` to disable tracing. When no tracer is set there is
+no timing and no dispatch — zero overhead. Child containers inherit the
+parent tracer. Scope resolutions report the scope name as the last argument.
+
+### OpenTelemetry
+
+Install the optional extra and attach an adapter that emits spans:
+
+```bash
+pip install "doppy-di[otel]"
+```
+
+```python
+from doppy_di import ContainerBuilder
+from doppy_di.ext.otel import otel_adapter
+
+builder = ContainerBuilder()
+builder.value("a", 1)
+container = builder.build()
+container.set_tracer(otel_adapter())
+
+container.get("a")  # emits doppy.resolve:'a' span
+```
+
 ## Devkit extensions
 
 ### ValidatingContainer
