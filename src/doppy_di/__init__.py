@@ -66,6 +66,19 @@ from .devkit import (
 )
 from .inject import Depends, inject
 from .plan import ExecutionPlan
+from .resolution import (
+    ChildrenFirstPolicy as ResolutionChildrenFirstPolicy,
+)
+from .resolution import (
+    DefaultResolutionPolicy,
+    EagerPolicy,
+    LazyPolicy,
+    ParallelPolicy,
+    ResolutionPolicy,
+)
+from .resolution import (
+    ParentFirstPolicy as ResolutionParentFirstPolicy,
+)
 
 __all__ = [
     "AsyncDependencyInSyncContextError",
@@ -78,12 +91,14 @@ __all__ = [
     "ContainerConfig",
     "CycleError",
     "CyclicDependencyError",
+    "DefaultResolutionPolicy",
     "DependencyCycleError",
     "Depends",
     "DiffReport",
     "DuplicateKeyError",
     "DuplicateKeyPolicy",
     "DuplicateRegistrationError",
+    "EagerPolicy",
     "ExecutionPlan",
     "Factory",
     "FactoryExecutionError",
@@ -91,6 +106,7 @@ __all__ = [
     "InvalidLifetimeError",
     "Key",
     "KeyProtocol",
+    "LazyPolicy",
     "Lifetime",
     "LifetimePolicy",
     "LoggingContainer",
@@ -100,11 +116,15 @@ __all__ = [
     "NestedRules",
     "OrderPolicy",
     "OverrideContext",
+    "ParallelPolicy",
     "ParentFirstPolicy",
     "Provider",
     "Qualifier",
     "RegistrationSource",
     "ResolutionCancelledError",
+    "ResolutionChildrenFirstPolicy",
+    "ResolutionParentFirstPolicy",
+    "ResolutionPolicy",
     "ResolveContext",
     "ResourceFinalizationError",
     "Rule",
