@@ -102,6 +102,10 @@ class ExecutionPlan:
         container = self.container
         if container is None:
             return
+        from .resolution import LazyPolicy
+
+        if isinstance(container._policy, LazyPolicy):
+            return
         lookup_repr = _key_repr(lookup)
         if lookup_repr not in self.order:
             return

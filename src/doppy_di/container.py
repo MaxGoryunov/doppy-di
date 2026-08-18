@@ -50,6 +50,7 @@ from typing_extensions import TYPE_CHECKING, Self, TypeAlias
 
 if TYPE_CHECKING:
     from .plan import ExecutionPlan
+    from .resolution import ResolutionPolicy
 
 logger = logging.getLogger("doppy_di.container")
 
@@ -1318,6 +1319,8 @@ class Container:
     __slots__ = (
         "_compiled_plan",
         "_override_layers",
+        "_policy",
+        "_policy_depth",
         "_providers",
         "_tracer",
         "_visualize_cache",
@@ -1343,6 +1346,81 @@ class Container:
         self._override_layers: List[OverrideLayer] = []
         self._compiled_plan: Optional["ExecutionPlan"] = None
         self._tracer: Optional[TracerFn] = None
+        self._policy: Optional["ResolutionPolicy"] = config.policy
+        self._policy_depth = 0
+
+    def _resolve_with_policy(
+        self,
+        lookup: Key,
+        policy: "ResolutionPolicy",
+        _scope_name: Optional[str],
+    ) -> Any:
+        """Resolve ``lookup`` honouring the policy's key ordering."""
+        from .resolution import ParallelPolicy
+
+        order = list(policy.order(self.config.ruleset.map, lookup))
+        self._policy_depth += 1
+        cache: Dict[Key, Any] = {}
+        try:
+            if isinstance(policy, ParallelPolicy):
+                for level in self._independent_levels(order):
+                    for key in level:
+                        if key not in self.single and key not in cache:
+                            cache[key] = self.get(key, _scope_name=_scope_name)
+            else:
+                for key in order:
+                    if key not in self.single and key not in cache:
+                        cache[key] = self.get(key, _scope_name=_scope_name)
+            if lookup in cache:
+                return cache[lookup]
+            return self.get(lookup, _scope_name=_scope_name)
+        finally:
+            self._policy_depth -= 1
+
+    async def _resolve_with_policy_async(
+        self,
+        lookup: Key,
+        policy: "ResolutionPolicy",
+        _stacks: Optional[List[AsyncExitStack]],
+        _scope_name: Optional[str],
+        _path: Optional[List[Key]],
+    ) -> Any:
+        """Resolve ``lookup`` asynchronously honouring the policy ordering."""
+        from .resolution import ParallelPolicy
+
+        order = list(policy.order(self.config.ruleset.map, lookup))
+        self._policy_depth += 1
+        cache: Dict[Key, Any] = {}
+        try:
+            if isinstance(policy, ParallelPolicy):
+                for level in self._independent_levels(order):
+                    for key in level:
+                        if key not in self.single and key not in cache:
+                            cache[key] = await self.aget(
+                                key,
+                                _stacks=_stacks,
+                                _scope_name=_scope_name,
+                                _path=_path,
+                            )
+            else:
+                for key in order:
+                    if key not in self.single and key not in cache:
+                        cache[key] = await self.aget(
+                            key,
+                            _stacks=_stacks,
+                            _scope_name=_scope_name,
+                            _path=_path,
+                        )
+            if lookup in cache:
+                return cache[lookup]
+            return await self.aget(
+                lookup,
+                _stacks=_stacks,
+                _scope_name=_scope_name,
+                _path=_path,
+            )
+        finally:
+            self._policy_depth -= 1
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
@@ -1409,7 +1487,11 @@ class Container:
             tracer(key, duration, cache_hit, scope)
 
     def get(
-        self, key: Key, qualifier: Optional[str] = None, _scope_name: Optional[str] = None
+        self,
+        key: Key,
+        qualifier: Optional[str] = None,
+        _scope_name: Optional[str] = None,
+        policy: Optional["ResolutionPolicy"] = None,
     ) -> Any:
         """Resolve a service by key.
 
@@ -1423,6 +1505,8 @@ class Container:
             key: Service key.
             qualifier: Optional named qualifier. When given, resolves the
                 rule registered as ``(key, qualifier)``.
+            policy: Optional per-call resolution policy. Overrides the
+                container-wide policy for this call only.
 
         Examples:
             >>> builder = ContainerBuilder()
@@ -1432,6 +1516,9 @@ class Container:
             42
         """
         lookup = (key, qualifier) if qualifier is not None else key
+        active = policy if policy is not None else self._policy
+        if active is not None and self._policy_depth == 0:
+            return self._resolve_with_policy(lookup, active, _scope_name)
         started = self._tracer is not None
         start = time.perf_counter() if started else 0.0
         if self._override_layers:
@@ -1566,6 +1653,7 @@ class Container:
         _stacks: Optional[List[AsyncExitStack]] = None,
         _scope_name: Optional[str] = None,
         _path: Optional[List[Key]] = None,
+        policy: Optional["ResolutionPolicy"] = None,
     ) -> Any:
         """Resolve a service by key asynchronously.
 
@@ -1580,6 +1668,8 @@ class Container:
             key: Service key.
             qualifier: Optional named qualifier. When given, the rule
                 registered as ``(key, qualifier)`` is resolved.
+            policy: Optional per-call resolution policy. Overrides the
+                container-wide policy for this call only.
 
         Examples:
             >>> builder = ContainerBuilder()
@@ -1592,6 +1682,15 @@ class Container:
             42
         """
         lookup = (key, qualifier) if qualifier is not None else key
+        active = policy if policy is not None else self._policy
+        if active is not None and self._policy_depth == 0:
+            return await self._resolve_with_policy_async(
+                lookup,
+                active,
+                _stacks,
+                _scope_name,
+                _path,
+            )
         started = self._tracer is not None
         start = time.perf_counter() if started else 0.0
         if self._override_layers:
@@ -2032,6 +2131,7 @@ class Container:
             )
         )
         child_container._tracer = self._tracer
+        child_container._policy = self._policy
         return child_container
 
     def with_profile(
@@ -2315,6 +2415,7 @@ class ContainerConfig:
     finalization_errors: bool = False
     profile: Optional[str] = None
     compile_policy: CompilePolicy = CompilePolicy.ALLOW_OVERRIDE
+    policy: Optional["ResolutionPolicy"] = None
 
 
 class ContainerBuilder:
@@ -2497,12 +2598,17 @@ class ContainerBuilder:
         )
         return self
 
-    def build(self, validate: bool = False) -> Container:
+    def build(
+        self,
+        validate: bool = False,
+        policy: Optional["ResolutionPolicy"] = None,
+    ) -> Container:
         """Build and return a Container.
 
         Args:
             validate: When True, raises ContainerBuildError if any
                 dependency key is not registered.
+            policy: Optional resolution policy applied to the container.
 
         Examples:
             >>> b = ContainerBuilder()
@@ -2527,7 +2633,7 @@ class ContainerBuilder:
                         missing.append((key, dep))
             if missing:
                 raise ContainerBuildError(missing)
-        return Container(
+        container = Container(
             ContainerConfig(
                 self.rules,
                 scope_policy=self.scope_policy,
@@ -2535,5 +2641,16 @@ class ContainerBuilder:
                 track_sources=self.track_sources,
                 wrap_factory_errors=self.wrap_factory_errors,
                 finalization_errors=self.finalization_errors,
+                policy=policy,
             )
         )
+        if policy is not None:
+            from .resolution import EagerPolicy
+
+            if isinstance(policy, EagerPolicy):
+                first = next(iter(self.rules.map), None)
+                if first is not None:
+                    for key in policy.order(self.rules.map, first):
+                        if key in self.rules.map:
+                            container.get(key)
+        return container
