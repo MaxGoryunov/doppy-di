@@ -49,6 +49,7 @@ from typing import (
 from typing_extensions import TYPE_CHECKING, Self, TypeAlias
 
 if TYPE_CHECKING:
+    from .graph import DependencyGraph
     from .plan import ExecutionPlan
     from .resolution import ResolutionPolicy
 
@@ -2230,6 +2231,12 @@ class Container:
             "rules": rules,
         }
         return json.dumps(payload, sort_keys=True, indent=2)
+
+    def graph(self) -> DependencyGraph:
+        """Return a DependencyGraph representation of this container."""
+        from .graph import DependencyGraph
+
+        return DependencyGraph(self.config.ruleset)
 
     def visualize(self, format: str = "mermaid") -> Any:  # noqa: A002
         """Return a textual representation of the dependency graph.

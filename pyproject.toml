@@ -24,7 +24,11 @@ classifiers = [
 ]
 dependencies = [
     "typing_extensions>=4.5",
+    "click>=8.0",
 ]
+
+[project.scripts]
+doppy-di = "doppy_di.cli:cli"
 
 [project.urls]
 Homepage = "https://github.com/MaxGoryunov/doppy-di"
@@ -79,6 +83,7 @@ ignore = ["UP006", "UP007", "UP035", "UP037", "UP045"]
 python_version = "3.10"
 strict = true
 warn_unreachable = true
+warn_unused_ignores = false
 files = ["src/doppy_di", "tests/typing_checks.py"]
 mypy_path = "src"
 exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/']
@@ -89,6 +94,10 @@ ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = "doppy_di.ext.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["click", "click.testing"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
