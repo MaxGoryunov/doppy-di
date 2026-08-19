@@ -64,6 +64,7 @@ from .devkit import (
     ValidationRule,
     ValidationRunner,
 )
+from .graph import DependencyGraph
 from .inject import Depends, inject
 from .plan import ExecutionPlan
 from .resolution import (
@@ -93,6 +94,7 @@ __all__ = [
     "CyclicDependencyError",
     "DefaultResolutionPolicy",
     "DependencyCycleError",
+    "DependencyGraph",
     "Depends",
     "DiffReport",
     "DuplicateKeyError",

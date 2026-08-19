@@ -540,6 +540,7 @@ wheels = [
 name = "doppy-di"
 source = { editable = "." }
 dependencies = [
+    { name = "click" },
     { name = "typing-extensions" },
 ]
 
@@ -581,6 +582,7 @@ doc = [
 [package.metadata]
 requires-dist = [
     { name = "aiogram", marker = "extra == 'aiogram'" },
+    { name = "click", specifier = ">=8.0" },
     { name = "fastapi", marker = "extra == 'fastapi'" },
     { name = "mkdocs", marker = "extra == 'docs'" },
     { name = "mkdocs-material", marker = "extra == 'docs'" },
