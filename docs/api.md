@@ -121,6 +121,7 @@ chaining:
 builder = ContainerBuilder()
 builder.value("x", 1).service("y", lambda: 2).alias("z", "x")
 container = builder.build()
+```
 
 ## Compile / plan mode
 
@@ -155,3 +156,183 @@ strict.compile()
 `ExecutionPlan.serialize()` / `ExecutionPlan.deserialize()` persist the graph
 topology, rule metadata and resolved singletons to JSON for caching or
 cross-process reuse.
+
+## Provider facade
+
+Declarative providers convert to container rules on attribute assignment.
+They are inert data objects: no resolution logic, zero overhead until
+assigned. Import from `doppy_di.providers`; the package-level `Factory`
+protocol is untouched.
+
+```python
+from doppy_di import Container, Scope
+from doppy_di.providers import Factory, Singleton, Value, Resource
+
+services = Container()
+services.config = Value({"debug": True})
+services.db = Resource(create_db, Scope.APP)
+services.repo = Factory(UserRepository, db=services.db)
+services.service = Singleton(UserService, repo=services.repo)
+```
+
+Assigning a class factory registers both the named key and a type key.
+Dependencies may reference providers before assignment; unbound placeholders
+resolve by name at rule registration.
+
+### Provider classes
+
+- `Factory` — transient factory.
+- `Singleton` — singleton factory.
+- `Scoped` — factory cached per scope.
+- `Value` — constant value.
+- `Resource` — yield-based resource finalized on scope exit.
+- `Coroutine` — async factory.
+- `Alias` — points at another key.
+- `Selector` — picks one provider at resolution time.
+- `ListOf` — aggregates providers into a list.
+- `DictOf` — aggregates named providers into a dict.
+
+## Async resolution
+
+`Container.aget()` resolves sync and async factories, sync and async
+resources, and resolves independent dependency branches concurrently. Sync
+factories are called directly with no `await` overhead. `Container.ascope()`
+provides an async scope; async yield providers are finalized on scope exit
+and on cancellation.
+
+```python
+async def make_db():
+    return Database("async")
+
+builder.service("db", make_db)
+container = builder.build()
+db = await container.aget("db")
+
+async with container.ascope("req") as scope:
+    session = await scope.aget("session")
+# async resources finalized on scope exit
+```
+
+`Container.get_many(keys, parallel=True)` resolves independent keys
+concurrently.
+
+### Async errors
+
+- `AsyncDependencyInSyncContextError` — async dependency resolved via sync
+  `get()`.
+- `SyncFactoryReturningAwaitableError` — sync factory returned an awaitable.
+- `ResolutionCancelledError` — `aget()` cancelled after partially creating
+  resources; partially-created resources are finalized automatically.
+
+## Resolution policies
+
+Pluggable policies control the order of dependency resolution. Policies are
+opt-in; default behaviour is unchanged when none is specified.
+
+```python
+from doppy_di import (
+    ResolutionChildrenFirstPolicy,
+    DefaultResolutionPolicy,
+    EagerPolicy,
+    ParallelPolicy,
+)
+
+# container-wide policy
+container = builder.build(policy=ResolutionChildrenFirstPolicy())
+
+# per-call policy
+container.get("a", policy=EagerPolicy())
+```
+
+### Built-in policies
+
+- `DefaultResolutionPolicy` — resolve only the requested key (historical
+  behaviour).
+- `LazyPolicy` — same as default; nothing resolved until `get()`.
+- `ParentFirstPolicy` — parents before children.
+- `ChildrenFirstPolicy` — children before parents.
+- `EagerPolicy` — resolve the entire graph up front.
+- `ParallelPolicy` — resolve dependency levels concurrently in `aget()`
+  (sequential in sync `get()`).
+
+Implement the `ResolutionPolicy` protocol (`order(graph, root)`) for custom
+strategies.
+
+### Name disambiguation
+
+The top-level `ChildrenFirstPolicy`/`ParentFirstPolicy` names belong to the
+devkit nested-field ordering. Resolution policies are exported under the
+aliases `ResolutionChildrenFirstPolicy`/`ResolutionParentFirstPolicy`.
+Import resolution policies from `doppy_di` using the aliases, or directly
+from `doppy_di.resolution`.
+
+## Graph introspection
+
+`Container.graph()` returns a `DependencyGraph` for programmatic querying.
+
+```python
+g = container.graph()
+g.nodes()               # all registered keys
+g.edges()               # (key, dependency) pairs
+g.dependencies_of("a")  # direct deps
+g.dependents_of("a")    # direct dependents
+g.to_mermaid()          # mermaid
+g.to_dot()              # graphviz
+g.to_json()             # dict
+g.to_text()             # text tree
+```
+
+`DependencyGraph` is exported from the package root and
+`doppy_di.graph`.
+
+## Profiles and child containers
+
+Derive environment-specific containers without mutating the base.
+
+```python
+builder.value("env", "base")
+container = builder.build()
+prod = container.with_profile("prod", {"env": "prod"})
+```
+
+- `with_profile(name, overrides)` — layered container with profile
+  overrides.
+- `child(name=None)` — container layered over the parent; parent rules added
+  later stay visible.
+- `diff(other)` — returns `DiffReport` of `added`/`removed`/`changed`
+  keys.
+- `export_config(format="json")` — serialize the effective configuration to
+  JSON.
+
+## Tracing
+
+`Container.set_tracer()` registers a callback invoked after each successful
+resolution.
+
+```python
+def tracer(key, duration, cache_hit, scope):
+    ...
+
+container.set_tracer(tracer)
+container.set_tracer(None)  # disable
+```
+
+The callback receives `(key, duration, cache_hit, scope)`. With no tracer
+set there is no timing and no dispatch — zero overhead. Child containers
+inherit the parent tracer.
+
+### OpenTelemetry
+
+```bash
+pip install "doppy-di[otel]"
+```
+
+```python
+from doppy_di.ext.otel import otel_adapter
+
+container.set_tracer(otel_adapter())
+container.get("a")  # emits doppy.resolve:'a' span
+```
+
+`TracerFn` is the callback protocol:
+`Callable[[Key, float, bool, Optional[str]], None]`.

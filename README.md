@@ -288,6 +288,186 @@ a, b = await container.get_many(["a", "b"], parallel=True)
 
 Async containers also support `aget()` and `ascope()`.
 
+### Async-first resolution
+
+`aget()` resolves sync and async factories, sync and async resources, and
+resolves independent dependency branches concurrently. Sync factories are
+called directly with no `await` overhead.
+
+```python
+async def make_db():
+    return Database("async")
+
+builder.service("db", make_db)
+container = builder.build()
+
+db = await container.aget("db")
+```
+
+Async yield providers are finalized on cancellation:
+
+```python
+async def make_session():
+    try:
+        yield Database()
+    finally:
+        await cleanup()
+
+builder.service("session", make_session)
+container = builder.build()
+
+async with container.ascope("req") as scope:
+    session = await scope.aget("session")
+# session finalized on scope exit
+```
+
+Mixed-graph rules: a sync factory depending on an async dependency raises
+`AsyncDependencyInSyncContextError` when resolved via `get()`. A sync factory
+returning an awaitable raises `SyncFactoryReturningAwaitableError`. Cancelled
+`aget()` finalizes partially-created resources and raises
+`ResolutionCancelledError`.
+
+### Provider facade
+
+Declarative providers convert to rules on assignment. Import from
+`doppy_di.providers`; the package-level `Factory` protocol is untouched.
+
+```python
+from doppy_di import Container, Scope
+from doppy_di.providers import Factory, Singleton, Value, Resource
+
+services = Container()
+services.config = Value({"debug": True})
+services.db = Resource(create_db, Scope.APP)
+services.repo = Factory(UserRepository, db=services.db)
+services.service = Singleton(UserService, repo=services.repo)
+```
+
+Providers: `Factory`, `Singleton`, `Scoped`, `Value`, `Resource`,
+`Coroutine`, `Alias`, `Selector`, `ListOf`, `DictOf`. Assignment is
+attribute-style; dependencies may reference other providers before they are
+assigned.
+
+### Config profiles and child containers
+
+Derive environment-specific containers without mutating the base.
+
+```python
+builder = ContainerBuilder()
+builder.value("env", "base")
+container = builder.build()
+
+prod = container.with_profile("prod", {"env": "prod"})
+assert container.get("env") == "base"
+assert prod.get("env") == "prod"
+```
+
+`child()` layers rules over the parent; parent rules added later stay
+visible. `diff(other)` returns a `DiffReport` of added/removed/changed keys.
+`export_config()` serializes the effective configuration to JSON.
+
+### Compile / plan mode
+
+Compile the graph once into an immutable `ExecutionPlan`.
+
+```python
+plan = container.compile()
+assert plan.get("b") == 2
+```
+
+`compile()` validates the full graph up front. The plan is immutable and
+resolves through the live container, so lifetimes, caches and scopes keep
+identical semantics. `ExecutionPlan.serialize()` / `deserialize()` persist
+the plan to JSON. Fully opt-in: if `compile()` is never called there is zero
+overhead.
+
+### Observability and tracing
+
+Set a tracer callback to observe every resolution.
+
+```python
+events = []
+
+def tracer(key, duration, cache_hit, scope):
+    events.append((key, duration, cache_hit, scope))
+
+container.set_tracer(tracer)
+container.get("a")
+container.get("a")  # cache hit
+```
+
+Pass `set_tracer(None)` to disable. When no tracer is set there is no timing
+and no dispatch — zero overhead. Child containers inherit the parent tracer.
+
+OpenTelemetry integration via the optional extra:
+
+```bash
+pip install "doppy-di[otel]"
+```
+
+```python
+from doppy_di.ext.otel import otel_adapter
+
+container.set_tracer(otel_adapter())
+container.get("a")  # emits doppy.resolve:'a' span
+```
+
+### Pluggable resolution policies
+
+Control the order of dependency resolution. Policies are opt-in; the default
+behaviour is unchanged when none is specified.
+
+```python
+from doppy_di import (
+    ResolutionChildrenFirstPolicy,
+    EagerPolicy,
+    ParallelPolicy,
+)
+
+# container-wide policy
+container = builder.build(policy=ResolutionChildrenFirstPolicy())
+
+# per-call policy
+container.get("a", policy=EagerPolicy())
+```
+
+Built-in policies: `DefaultResolutionPolicy`, `LazyPolicy`,
+`ResolutionParentFirstPolicy`, `ResolutionChildrenFirstPolicy`,
+`EagerPolicy`, `ParallelPolicy`. Implement the `ResolutionPolicy` protocol
+(`order(graph, root)`) for custom strategies.
+
+Note: resolution policies are exported under the aliases
+`ResolutionChildrenFirstPolicy` / `ResolutionParentFirstPolicy`. The
+top-level `ChildrenFirstPolicy` / `ParentFirstPolicy` names belong to the
+devkit nested-field ordering (see "Optional runtime layers" above).
+
+### Graph introspection and CLI
+
+Query the dependency graph programmatically.
+
+```python
+g = container.graph()
+g.nodes()               # all registered keys
+g.edges()               # (key, dependency) pairs
+g.dependencies_of("a")  # direct deps
+g.dependents_of("a")    # direct dependents
+g.to_mermaid()          # mermaid
+g.to_dot()              # graphviz
+g.to_json()             # dict
+g.to_text()             # text tree
+```
+
+Inspect or lint container definitions from a file:
+
+```bash
+doppy-di graph container.py --format mermaid
+doppy-di explain db --file container.py
+doppy-di check container.py --root service --strict
+```
+
+`check` reports missing dependencies, cycles, duplicate registrations,
+unused registrations (with `--root`), and lifetime violations.
+
 ### Framework integrations
 
 Optional first-party integrations for FastAPI, aiogram, and Typer live in `doppy_di.ext.*`.
