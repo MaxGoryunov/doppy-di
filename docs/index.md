@@ -13,6 +13,19 @@ Minimal dependency injection container for Python.
 - **Build validation** — `builder.build(validate=True)` catches missing dependencies.
 - **Thread safety** — double-checked locking on singleton resolution.
 - **Devkit extensions** — `ValidatingContainer`, `LoggingContainer`, `NestedRules`, order policies.
+- **Async-first resolution** — `aget()`, `ascope()`, parallel branch resolution, cancellation-safe resource cleanup.
+- **Provider facade** — declarative `Factory`, `Singleton`, `Scoped`, `Value`, `Resource`, `Coroutine`, `Alias`, `Selector`, `ListOf`, `DictOf` providers.
+- **Profiles and child containers** — `with_profile()`, `child()`, `diff()`, `export_config()`.
+- **Compile / plan mode** — immutable `ExecutionPlan` with JSON serialization.
+- **Observability** — `set_tracer()` callbacks and OpenTelemetry integration.
+- **Pluggable resolution policies** — `DefaultResolutionPolicy`, `EagerPolicy`, `ParallelPolicy`, and more.
+- **Graph introspection and CLI** — `container.graph()`, `doppy-di graph/explain/check`.
+- **Auto-wiring** — `@injectable`, `Container.scan()`, lazy type-based resolution.
+- **Function injection** — `@inject` with `Depends()`.
+- **Yield providers** — generator-based resources finalized on scope exit.
+- **Qualifiers** — named dependencies via `Annotated`.
+- **Framework integrations** — FastAPI, aiogram, Typer.
+- **Modern typing support** — `TypeAlias`, `TypedDict`, `ParamSpec`, `TypeGuard`, `Self`.
 
 ## Quick start
 
