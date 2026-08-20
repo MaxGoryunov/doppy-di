@@ -49,7 +49,9 @@ def test_factory_provider_does_not_cache() -> None:
 
 def test_singleton_provider_caches() -> None:
     services = Container()
-    services.service = Singleton(UserService)
+    services.service = Singleton(  # type: ignore[method-assign, assignment]
+        UserService
+    )
 
     assert services.get(UserService) is services.get(UserService)
 
@@ -202,7 +204,9 @@ def test_factory_with_dependencies() -> None:
 def test_singleton_with_dependencies() -> None:
     services = Container()
     services.repo = Factory(UserRepository)
-    services.service = Singleton(UserService, repo=services.repo)
+    services.service = Singleton(  # type: ignore[method-assign, assignment]
+        UserService, repo=services.repo
+    )
 
     assert services.get("service").repo is services.get("repo")
 

@@ -86,7 +86,7 @@ warn_unreachable = true
 warn_unused_ignores = false
 files = ["src/doppy_di", "tests/typing_checks.py"]
 mypy_path = "src"
-exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/']
+exclude = ['(^|/)noxfile\.py$', '\.venv/', 'venv/', 'tests/', 'benchmarks/']
 
 [[tool.mypy.overrides]]
 module = "noxfile"
@@ -98,6 +98,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["click", "click.testing"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = [
+    "tomllib",
+    "punq",
+    "wireup",
+    "dependency_injector.*",
+    "dishka",
+    "injex",
+    "lagom",
+]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

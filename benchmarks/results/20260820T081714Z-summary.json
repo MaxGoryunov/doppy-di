@@ -1,0 +1,92 @@
+{
+  "benchmark_commit": "unknown",
+  "cold_start_ms": {
+    "dependency-injector": 0.2268,
+    "dishka": 4.1096,
+    "doppy-di": 0.0802,
+    "doppy-di compiled": 0.1589,
+    "injex": 0.1845,
+    "lagom": 0.3822,
+    "punq": 0.4764,
+    "wireup same scope": 4.5756,
+    "wireup scope/op": 4.9257
+  },
+  "cpu": "Intel64 Family 6 Model 142 Stepping 12, GenuineIntel",
+  "graph": {
+    "ApiClient": "singleton",
+    "AuditLog": "transient",
+    "EmailSender": "transient",
+    "RegisterUser": "transient",
+    "Settings": "singleton",
+    "UserRepository": "transient"
+  },
+  "iterations": 250000,
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.13",
+  "results": {
+    "dependency-injector": {
+      "max_us_per_op": 4.6071424,
+      "median_us_per_op": 2.3883092,
+      "min_us_per_op": 2.0067508
+    },
+    "dishka": {
+      "max_us_per_op": 4.074768,
+      "median_us_per_op": 1.7802656,
+      "min_us_per_op": 1.7525536
+    },
+    "doppy-di": {
+      "max_us_per_op": 17.9792304,
+      "median_us_per_op": 14.7698812,
+      "min_us_per_op": 11.4647664
+    },
+    "doppy-di compiled": {
+      "max_us_per_op": 32.728522,
+      "median_us_per_op": 29.4327892,
+      "min_us_per_op": 28.250713599999997
+    },
+    "injex": {
+      "max_us_per_op": 2.0607604,
+      "median_us_per_op": 0.8714160000000001,
+      "min_us_per_op": 0.8567792
+    },
+    "lagom": {
+      "max_us_per_op": 30.995117999999998,
+      "median_us_per_op": 27.5713612,
+      "min_us_per_op": 21.910610799999997
+    },
+    "manual": {
+      "max_us_per_op": 1.7947616,
+      "median_us_per_op": 0.8453128000000001,
+      "min_us_per_op": 0.7552056
+    },
+    "punq": {
+      "max_us_per_op": 187.87885,
+      "median_us_per_op": 179.525864,
+      "min_us_per_op": 168.67052840000002
+    },
+    "wireup same scope": {
+      "max_us_per_op": 3.8612104,
+      "median_us_per_op": 1.7320103999999998,
+      "min_us_per_op": 1.7003564
+    },
+    "wireup scope/op": {
+      "max_us_per_op": 6.048091599999999,
+      "median_us_per_op": 3.8558348000000002,
+      "min_us_per_op": 2.9347748
+    }
+  },
+  "samples": 9,
+  "semantic_checks": {
+    "dependency-injector": "PASS",
+    "dishka": "PASS",
+    "doppy-di": "PASS",
+    "doppy-di compiled": "PASS",
+    "injex": "PASS",
+    "lagom": "FAIL (AssertionError())",
+    "manual": "PASS",
+    "punq": "FAIL (AssertionError())",
+    "wireup same scope": "FAIL (AssertionError())",
+    "wireup scope/op": "FAIL (AssertionError())"
+  },
+  "warmup": 12000
+}
