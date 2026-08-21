@@ -10,23 +10,29 @@ overhead and behaviour is unchanged.
 
 from __future__ import annotations
 
+import inspect
 import json
 import logging
+import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
 from .container import (
     CompositeRuleSet,
     Container,
     DependencyCycleError,
+    InvalidFactoryError,
     Key,
     MissingDependencyError,
     Rule,
     RuleSetProtocol,
     ServiceNotFoundError,
+    _unset,
 )
 
 logger = logging.getLogger("doppy_di.plan")
+
+_MISSING = object()
 
 
 def _key_repr(key: Key) -> str:
@@ -40,7 +46,7 @@ def _topological_order(
     """Return (order, edges) over the registered ``scope`` of rules.
 
     Uses Kahn's algorithm. Raises :class:`DependencyCycleError` if a cycle is
-    reachable among registered keys. Edges only point to registered dependencies.
+    reachable among registered keys. Edges only point to registered deps.
     """
     keys = tuple(scope.keys())
     key_reprs = [_key_repr(k) for k in keys]
@@ -77,13 +83,27 @@ def _topological_order(
 
 
 @dataclass(frozen=True, slots=True)
+class _NodeSpec:
+    """Pre-computed per-node resolution spec for the fast path."""
+
+    key: Key
+    make: Optional[Callable[..., Any]]
+    deps_idx: Tuple[int, ...]
+    lifetime: str
+    yield_provider: bool
+    async_yield_provider: bool
+    is_async: bool
+    nested: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """Immutable, pre-compiled execution plan for a container.
 
     The plan holds a topological ordering of the registered rules plus the
-    resolved dependency edges. ``get`` walks the precomputed order and delegates
-    to the underlying container, so lifetimes, caches and scopes keep the same
-    semantics as ``Container.get``.
+    resolved dependency edges. ``get`` walks the precomputed order and
+    resolves directly without re-entering ``Container.get``, so lifetimes,
+    caches and scopes keep the same semantics as ``Container.get``.
 
     The plan is immutable: once built it cannot be changed. It may be
     serialized for caching or cross-process reuse via :meth:`serialize`.
@@ -96,30 +116,96 @@ class ExecutionPlan:
     keys: Dict[str, Key]
     singletons: Dict[str, Any] = field(default_factory=dict)
     compile_policy: str = "allow_override"
+    node_index: Dict[Key, int] = field(default_factory=dict)
+    nodes: Tuple[_NodeSpec, ...] = field(default_factory=tuple)
 
-    def _resolve_ordered(self, lookup: Key) -> None:
-        """Ensure dependencies of ``lookup`` resolve in topological order."""
+    def _resolve_fast(self, lookup: Key) -> Any:
+        """Resolve ``lookup`` using the precomputed node graph.
+
+        Walks nodes in topological order up to and including the requested
+        key. Singletons are read from / written to the live container cache so
+        overrides and cross-plan identity are preserved. Transients are built
+        fresh on every call. No reflection, no locks on the warm path, no
+        ``ResolveContext`` allocation.
+        """
         container = self.container
-        if container is None:
-            return
-        from .resolution import LazyPolicy
+        idx = self.node_index.get(lookup)
+        if idx is None:
+            if container is not None:
+                return container.get(lookup)
+            idx = self.node_index.get(_key_repr(lookup))
+            if idx is None:
+                raise ServiceNotFoundError(lookup)
 
-        if isinstance(container._policy, LazyPolicy):
-            return
-        lookup_repr = _key_repr(lookup)
-        if lookup_repr not in self.order:
-            return
-        idx = self.order.index(lookup_repr)
-        for dep_repr in self.order[:idx]:
-            dep_key = self.keys.get(dep_repr)
-            if dep_key is None:
-                continue
-            if dep_key not in container.single:
-                try:
-                    container.get(dep_key)
-                except ServiceNotFoundError:
-                    # Lazy / injectable keys not present at compile time.
+        nodes = self.nodes
+        if container is None:
+            resolved = [None] * (idx + 1)
+            for i in range(idx + 1):
+                spec = nodes[i]
+                if spec.lifetime == "singleton":
+                    cached = self.singletons.get(self.order[i], _MISSING)
+                    if cached is _MISSING:
+                        cached = self.singletons.get(_key_repr(spec.key), _MISSING)
+                    if cached is _MISSING and isinstance(spec.key, str):
+                        cached = self.singletons.get(spec.key, _MISSING)
+                    if cached is not _MISSING:
+                        resolved[i] = cached
+                        continue
+                make = spec.make
+                if make is None:
+                    raise ServiceNotFoundError(spec.key)
+                deps = spec.deps_idx
+                dep_objs = make(*[resolved[j] for j in deps]) if deps else make()
+                resolved[i] = dep_objs
+            return resolved[idx]
+
+        single = container.single
+        lock = container.lock
+        override_layers = container._override_layers
+        tracer = container._tracer
+        started = tracer is not None
+        start = 0.0
+        if started:
+            start = time.perf_counter()
+
+        resolved = [None] * (idx + 1)
+        for i in range(idx + 1):
+            spec = nodes[i]
+            if override_layers:
+                overridden = container._resolve_override(spec.key)
+                if overridden is not _unset:
+                    resolved[i] = overridden
                     continue
+            if spec.lifetime == "singleton":
+                cached = single.get(spec.key, _MISSING)
+                if cached is not _MISSING:
+                    resolved[i] = cached
+                    continue
+
+            if spec.yield_provider or spec.async_yield_provider or spec.is_async:
+                return container.get(spec.key)
+
+            make = spec.make
+            if make is None:
+                return container.get(spec.key)
+
+            deps = spec.deps_idx
+            obj = make(*[resolved[j] for j in deps]) if deps else make()
+
+            if spec.lifetime == "singleton":
+                with lock:
+                    existing = single.get(spec.key, _MISSING)
+                    if existing is _MISSING:
+                        single[spec.key] = obj
+                    else:
+                        obj = existing
+            if spec.nested:
+                container._cache_nested_aliases(spec.key, obj)
+            if started:
+                container._trace(spec.key, time.perf_counter() - start, False, None)
+            resolved[i] = obj
+
+        return resolved[idx]
 
     def get(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Resolve ``key`` using the precomputed order.
@@ -128,7 +214,8 @@ class ExecutionPlan:
         cache, scopes are honoured, overrides are applied.
         """
         lookup = (key, qualifier) if qualifier is not None else key
-        self._resolve_ordered(lookup)
+        if self.nodes:
+            return self._resolve_fast(lookup)
         container = self.container
         if container is not None:
             return container.get(lookup)
@@ -147,7 +234,6 @@ class ExecutionPlan:
         container = self.container
         if container is None:
             raise ServiceNotFoundError(lookup)
-        self._resolve_ordered(lookup)
         return container.aget(lookup)
 
     @classmethod
@@ -174,6 +260,38 @@ class ExecutionPlan:
                 resolution_path=[errors[0][0], errors[0][1]],
             ) from None
 
+        for key, rule in ruleset.map.items():
+            try:
+                sig = inspect.signature(rule.make)
+            except (TypeError, ValueError):
+                sig = None
+            if sig is not None:
+                positional = [
+                    p
+                    for p in sig.parameters.values()
+                    if p.kind
+                    in (
+                        inspect.Parameter.POSITIONAL_ONLY,
+                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    )
+                ]
+                required = sum(1 for p in positional if p.default is inspect.Parameter.empty)
+                total = len(positional)
+                has_varargs = any(
+                    p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
+                )
+                if len(rule.deps) < required:
+                    raise InvalidFactoryError(
+                        key,
+                        f"factory requires at least {required} args "
+                        f"but only {len(rule.deps)} deps declared",
+                    ) from None
+                if len(rule.deps) > total and not has_varargs:
+                    raise InvalidFactoryError(
+                        key,
+                        f"factory accepts at most {total} args but {len(rule.deps)} deps declared",
+                    ) from None
+
         for key in ruleset.map:
             try:
                 ruleset._check_cycle(key)
@@ -194,6 +312,30 @@ class ExecutionPlan:
             repr_key = _key_repr(key)
             meta[repr_key] = _rule_meta(rules_map[key])
             keys[repr_key] = key
+
+        # Build fast-path node specs keyed by object key.
+        key_to_idx: Dict[Key, int] = {}
+        for i, repr_key in enumerate(order):
+            key_to_idx[keys[repr_key]] = i
+
+        nodes: List[_NodeSpec] = []
+        for repr_key in order:
+            key = keys[repr_key]
+            rule = rules_map[key]
+            deps_idx = tuple(key_to_idx[d] for d in rule.deps if d in key_to_idx)
+            nodes.append(
+                _NodeSpec(
+                    key=key,
+                    make=rule.make,
+                    deps_idx=deps_idx,
+                    lifetime=rule.lifetime,
+                    yield_provider=rule.yield_provider,
+                    async_yield_provider=rule.async_yield_provider,
+                    is_async=rule.is_async,
+                    nested=rule.nested,
+                )
+            )
+
         policy = container.config.compile_policy.value
         return cls(
             container=container,
@@ -203,6 +345,8 @@ class ExecutionPlan:
             keys=keys,
             singletons={},
             compile_policy=policy,
+            node_index=key_to_idx,
+            nodes=tuple(nodes),
         )
 
     def _singleton_snapshot(self) -> Dict[str, Any]:
@@ -256,14 +400,48 @@ class ExecutionPlan:
         singletons: Dict[str, Any] = {
             rk: _value_from_serializable(v) for rk, v in payload.get("singletons", {}).items()
         }
+        order = tuple(payload["order"])
+        repr_to_idx = {rk: i for i, rk in enumerate(order)}
+
+        key_to_idx: Dict[Key, int] = {}
+        for i, rk in enumerate(order):
+            if rk not in keys:
+                continue
+            key = keys[rk]
+            key_to_idx[key] = i
+            key_to_idx[rk] = i
+
+        nodes: List[_NodeSpec] = []
+        for rk in order:
+            meta = payload.get("rules", {}).get(rk)
+            if meta is None or rk not in keys:
+                continue
+            key = keys[rk]
+            deps: List[Any] = meta.get("deps", [])
+            deps_idx = tuple(repr_to_idx[d] for d in deps if d in repr_to_idx)
+            nodes.append(
+                _NodeSpec(
+                    key=key,
+                    make=None,
+                    deps_idx=deps_idx,
+                    lifetime=str(meta.get("lifetime", "transient")),
+                    yield_provider=bool(meta.get("yield")),
+                    async_yield_provider=bool(meta.get("async")),
+                    is_async=bool(meta.get("is_async")),
+                    nested=bool(meta.get("nested")),
+                )
+            )
+
         return cls(
             container=None,
-            order=tuple(payload["order"]),
+            order=order,
             edges=payload["edges"],
             rules=payload["rules"],
             keys=keys,
             singletons=singletons,
             compile_policy=payload.get("policy", "allow_override"),
+            node_index=key_to_idx,
+            nodes=tuple(nodes),
         )
 
 

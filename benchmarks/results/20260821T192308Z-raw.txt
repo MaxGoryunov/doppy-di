@@ -1,0 +1,66 @@
+Environment
+-----------
+Python: 3.12.13 (AMD64)
+Platform: Windows-10-10.0.19045-SP0
+Processor: Intel64 Family 6 Model 142 Stepping 12, GenuineIntel
+CPU count: 8
+Benchmark commit: unknown
+injex: 1.9.0
+wireup: 2.12.0
+dishka: 1.10.1
+dependency-injector: 4.49.1
+lagom: 2.7.7
+punq: 0.8.0
+doppy-di: 2.20.0.post1.dev0+g4192588a6.d20260821
+Warmup iterations: 12_000
+Measured iterations: 250_000
+Samples: 9
+
+Graph
+-----
+Settings: singleton
+ApiClient(Settings): singleton
+UserRepository(ApiClient): transient
+EmailSender(ApiClient): transient
+AuditLog(Settings): transient
+RegisterUser(UserRepository, EmailSender, AuditLog): transient
+
+Results
+-------
+Implementation           Median us/op  Min us/op  Max us/op   Overhead vs manual
+manual                          0.821      0.758      1.932                +0.0%
+injex                           0.894      0.859      2.395                +8.9%
+wireup same scope               1.893      1.771      3.984              +130.5%
+dishka                          2.152      1.913      4.473              +162.1%
+dependency-injector             2.632      2.218      5.607              +220.5%
+wireup scope/op                 4.050      3.187      8.518              +393.3%
+doppy-di compiled               4.338      3.001      6.702              +428.4%
+doppy-di                       17.021     15.429     19.553             +1973.0%
+lagom                          35.942     31.309     39.769             +4277.5%
+punq                          216.509    196.299    247.490            +26269.3%
+
+Semantic checks
+---------------
+manual: PASS
+injex: PASS
+doppy-di: PASS
+doppy-di compiled: PASS
+wireup same scope: FAIL (AssertionError())
+wireup scope/op: FAIL (AssertionError())
+dishka: PASS
+dependency-injector: PASS
+lagom: FAIL (AssertionError())
+punq: FAIL (AssertionError())
+
+Cold-start results
+------------------
+Implementation         Build+register+validate+first resolve
+doppy-di                        0.084 ms
+doppy-di compiled               0.156 ms
+dependency-injector             0.230 ms
+injex                           0.348 ms
+lagom                           0.353 ms
+punq                            0.432 ms
+dishka                          3.393 ms
+wireup scope/op                 4.147 ms
+wireup same scope               4.597 ms
