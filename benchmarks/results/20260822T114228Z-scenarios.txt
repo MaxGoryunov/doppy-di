@@ -1,0 +1,60 @@
+Environment
+-----------
+Python: 3.12.13 (AMD64)
+Platform: Windows-10-10.0.19045-SP0
+CPU count: 8
+Benchmark commit: unknown
+injex: 1.9.0
+doppy-di: 2.20.0.post1.dev0+g4192588a6.d20260821
+Warmup iterations: 10000
+Rounds: 9
+
+first_touch_sweep [ms/sweep (48 roots)] (9 sweeps, fresh container per sweep, setup untimed)
+  why: Boot fan-out. Injex exec-compiles each root creator lazily inside the measured region; doppy-di compiles upfront. Expected winner: doppy-di compiled.
+  manual                        0.032      0.031..0.066      
+  doppy-di compiled             2.549      2.504..3.442      WIN
+  injex                         3.581      3.458..5.691      
+  semantic check: PASS
+
+deep_chain_d16 [us/op] (100k iterations x 9 rounds, warm)
+  why: Middleware/pipeline shape. Pre-issue-40 doppy-di pays one closure frame per level; flattening makes frame count depth-independent. Expected post-40: tie or win.
+  manual                        3.570      3.385..8.139      
+  injex                         3.820      3.420..9.307      
+  doppy-di compiled             5.151      4.012..9.378      LOSS
+  semantic check: PASS
+
+wide_service_d10 [us/op] (100k iterations x 9 rounds, warm)
+  why: Typical application service with 10 deps over 2 singletons. Amplifies CSE and transient-inlining gains. Expected post-40: tie or win.
+  manual                        1.983      1.895..4.568      
+  injex                         2.116      1.928..4.561      
+  doppy-di compiled             3.910      3.600..8.323      LOSS
+  semantic check: PASS
+
+round_robin_roots [us/op] (150k iterations x 9 rounds, warm, 8 roots cycled)
+  why: Request dispatcher alternating across 8 roots. doppy-di resolvers are zero-arg closures; Injex threads scope through nested creator calls. Expected: tie or small win.
+  manual                        1.002      0.969..1.077      
+  injex                         1.227      1.138..2.579      
+  doppy-di compiled             1.666      1.545..4.077      LOSS
+  semantic check: PASS
+
+value_heavy_root [us/op] (150k iterations x 9 rounds, warm)
+  why: Config-driven bootstrap consuming 8 constants. Current doppy-di fast path spends one maker frame per value; Injex folds constants flat. Expected: loss until constant inlining lands.
+  injex                         1.167      0.521..1.193      
+  doppy-di compiled             1.586      1.513..3.648      LOSS
+  manual                        2.694      2.569..5.665      
+  semantic check: PASS
+
+singleton_fetch_loop [us/op] (250k iterations x 9 rounds, warm, cached singleton)
+  why: Per-request cached-service lookup. Parity guard: catches guard-check bloat in ExecutionPlan.get. Expected: tie.
+  manual                        0.134      0.120..0.149      
+  injex                         0.192      0.171..0.424      
+  doppy-di compiled             0.289      0.276..0.333      LOSS
+  semantic check: PASS
+
+threaded_resolve [us/op (4 threads)] (4 threads x 40k iters x 7 samples, wall-clock per thread)
+  why: Web-worker contention on shared graph. Both lock only on singleton miss. Expected: tie; regression means a lock leaked onto the warm path.
+  manual                        1.812      1.335..7.688      
+  injex                         3.007      1.714..8.637      
+  doppy-di compiled             5.267      3.904..11.827     LOSS
+  semantic check: PASS
+
