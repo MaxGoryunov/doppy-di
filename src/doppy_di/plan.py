@@ -96,6 +96,67 @@ class _NodeSpec:
     nested: bool
 
 
+def _build_node_maker(
+    spec: _NodeSpec,
+    dep_makers: Tuple[Callable[[], Any], ...],
+    container: Container,
+) -> Callable[[], Any]:
+    """Build a flat closure that resolves ``spec`` from pre-bound makers.
+
+    Arity-specialized: 0/1/2 deps call ``make`` directly without a list
+    comprehension. Singleton wrappers read/write the live container cache
+    with double-checked locking, preserving identity, thread-safety and
+    override-visible semantics of :meth:`Container.get`.
+    """
+    make = spec.make
+    assert make is not None
+
+    n = len(dep_makers)
+    if n == 0:
+
+        def _inner() -> Any:
+            return make()
+
+    elif n == 1:
+        (dep0,) = dep_makers
+
+        def _inner() -> Any:
+            return make(dep0())
+
+    elif n == 2:
+        dep0, dep1 = dep_makers
+
+        def _inner() -> Any:
+            return make(dep0(), dep1())
+
+    else:
+
+        def _inner() -> Any:
+            return make(*(d() for d in dep_makers))
+
+    if spec.lifetime != "singleton":
+        return _inner
+
+    single = container.single
+    lock = container.lock
+    key = spec.key
+
+    def _maker() -> Any:
+        cached = single.get(key, _MISSING)
+        if cached is not _MISSING:
+            return cached
+        value = _inner()
+        with lock:
+            existing = single.get(key, _MISSING)
+            if existing is _MISSING:
+                single[key] = value
+            else:
+                value = existing
+        return value
+
+    return _maker
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """Immutable, pre-compiled execution plan for a container.
@@ -118,6 +179,7 @@ class ExecutionPlan:
     compile_policy: str = "allow_override"
     node_index: Dict[Key, int] = field(default_factory=dict)
     nodes: Tuple[_NodeSpec, ...] = field(default_factory=tuple)
+    resolvers: Dict[Key, Callable[[], Any]] = field(default_factory=dict)
 
     def _resolve_fast(self, lookup: Key) -> Any:
         """Resolve ``lookup`` using the precomputed node graph.
@@ -215,6 +277,16 @@ class ExecutionPlan:
         """
         lookup = (key, qualifier) if qualifier is not None else key
         if self.nodes:
+            container = self.container
+            resolvers = self.resolvers
+            if (
+                container is not None
+                and not container._override_layers
+                and container._tracer is None
+            ):
+                resolver = resolvers.get(lookup)
+                if resolver is not None:
+                    return resolver()
             return self._resolve_fast(lookup)
         container = self.container
         if container is not None:
@@ -336,6 +408,24 @@ class ExecutionPlan:
                 )
             )
 
+        makers: List[Optional[Callable[[], Any]]] = [None] * len(nodes)
+        resolvers: Dict[Key, Callable[[], Any]] = {}
+        for i, spec in enumerate(nodes):
+            if (
+                spec.make is None
+                or spec.yield_provider
+                or spec.async_yield_provider
+                or spec.is_async
+                or spec.nested
+            ):
+                continue
+            if not all(makers[j] is not None for j in spec.deps_idx):
+                continue
+            dep_makers = tuple(cast(Callable[[], Any], makers[j]) for j in spec.deps_idx)
+            maker = _build_node_maker(spec, dep_makers, container)
+            makers[i] = maker
+            resolvers[spec.key] = maker
+
         policy = container.config.compile_policy.value
         return cls(
             container=container,
@@ -347,6 +437,7 @@ class ExecutionPlan:
             compile_policy=policy,
             node_index=key_to_idx,
             nodes=tuple(nodes),
+            resolvers=resolvers,
         )
 
     def _singleton_snapshot(self) -> Dict[str, Any]:
