@@ -674,3 +674,460 @@ def test_plan_deserialize_resolvers_empty() -> None:
     plan = container.compile()
     restored = ExecutionPlan.deserialize(plan.serialize())
     assert restored.resolvers == {}
+
+
+# --- Issue #40: flattened transient subgraphs --------------------------------
+
+
+def test_plan_flat_resolver_kind_literal_for_benchmark_graph() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+
+    assert plan.resolver_kinds[RegisterUser] == "flat"
+    assert plan.resolver_kinds[UserRepository] == "flat"
+    obj = plan.get(RegisterUser)
+    assert isinstance(obj, RegisterUser)
+    assert isinstance(obj.repo.client, ApiClient)
+    assert isinstance(obj.repo.client.settings, Settings)
+
+
+def test_plan_flat_deep_transient_chain_uses_generic_tier() -> None:
+    builder = ContainerBuilder()
+    builder.value("s", 7)
+    builder.service("t1", lambda s: ["t1", s], deps=["s"])
+    builder.service("t2", lambda t1: ["t2", t1], deps=["t1"])
+    builder.service("t3", lambda t2: ["t3", t2], deps=["t2"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["t3"] == "generic"
+    a = plan.get("t3")
+    b = plan.get("t3")
+    assert a is not b
+    assert a[0] == "t3"
+    assert a[1][0] == "t2"
+    assert a[1][1][0] == "t1"
+    assert a[1][1][1] == 7
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    [
+        "p",
+        "l1",
+        "pp",
+        "pl1",
+        "l1p",
+        "l1l1",
+        "ppp",
+        "ppl1",
+        "pl1p",
+        "pl1l1",
+        "l1pp",
+        "l1pl1",
+        "l1l1p",
+        "l1l1l1",
+    ],
+)
+def test_plan_flat_literal_slot_patterns(recipe: str) -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 10)
+    builder.service("api", lambda v: ["api", v], lifetime="singleton", deps=["v"])
+
+    # Parse recipe into slots: 'p' = prelude value ref, 'l1' = leaf call.
+    deps: List[Any] = []
+    kinds: List[str] = []
+    pos = 0
+    while pos < len(recipe):
+        if recipe[pos] == "p":
+            deps.append("v")
+            kinds.append("p")
+            pos += 1
+        else:
+            deps.append("api")
+            kinds.append("l1")
+            pos += 2
+
+    def make_root(*args: Any) -> List[Any]:
+        return ["root", *args]
+
+    builder.service("root", make_root, deps=deps)
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "flat"
+    obj = plan.get("root")
+    assert obj[0] == "root"
+    for i, kind in enumerate(kinds):
+        if kind == "p":
+            assert obj[i + 1] == 10
+        else:
+            assert obj[i + 1] == ["api", 10]
+
+
+def test_plan_flat_literal_prelude_sizes() -> None:
+    builder = ContainerBuilder()
+    builder.value("v1", 1)
+    builder.value("v2", 2)
+    builder.value("v3", 3)
+    builder.service("s1", lambda v1: ["s1", v1], lifetime="singleton", deps=["v1"])
+    builder.service("s2", lambda v2: ["s2", v2], lifetime="singleton", deps=["v2"])
+    builder.service("root3", lambda a, b, c: [a, b, c], deps=["s1", "v3", "s2"])
+    builder.service("root4", lambda a, b, c: [a, b, c], deps=["s1", "s2", "v1"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root3"] == "flat"
+    assert plan.resolver_kinds["root4"] == "flat"
+    assert plan.get("root3") == [["s1", 1], 3, ["s2", 2]]
+    assert plan.get("root4") == [["s1", 1], ["s2", 2], 1]
+
+
+def test_plan_flat_prelude_over_unroll_limit_is_generic() -> None:
+    builder = ContainerBuilder()
+    names: List[Any] = [f"v{i}" for i in range(6)]
+    for name in names:
+        builder.value(name, name)
+    builder.service("root", lambda *xs: list(xs), deps=names)
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "generic"
+    assert plan.get("root") == names
+
+
+def test_plan_flat_generic_wide_root_arity() -> None:
+    builder = ContainerBuilder()
+    for name in ("a", "b", "c", "d", "e"):
+        builder.value(name, name)
+    builder.service("root", lambda *xs: list(xs), deps=["a", "b", "c", "d", "e"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "generic"
+    assert plan.get("root") == ["a", "b", "c", "d", "e"]
+
+
+def test_plan_flat_generic_leaf_multi_dep() -> None:
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    builder.value("b", 2)
+    builder.service("t", lambda a, b: ["t", a, b], deps=["a", "b"])
+    builder.service("root", lambda t: ["root", t], deps=["t"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "generic"
+    assert plan.get("root") == ["root", ["t", 1, 2]]
+
+
+def test_plan_flat_singleton_root_shares_cache() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 3)
+    builder.service("t", lambda v: ["t", v], deps=["v"])
+    builder.service("root", lambda t: ["root", t], lifetime="singleton", deps=["t"])
+    container = builder.build()
+    plan = container.compile()
+
+    assert plan.resolver_kinds["root"] == "flat"
+    a = plan.get("root")
+    b = plan.get("root")
+    assert a is b
+    assert container.get("root") is a
+
+
+def test_plan_flat_duplicate_dep_slots() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 5)
+    builder.service("root", lambda x, y: x + y, deps=["v", "v"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "flat"
+    assert plan.get("root") == 10
+
+
+def test_plan_flat_fallback_when_yield_in_subtree() -> None:
+    def make_yield() -> Any:
+        yield 1
+
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.service("y", make_yield)
+    builder.service("root", lambda y, v: [y, v], deps=["y", "v"])
+    plan = builder.build().compile()
+
+    assert "root" not in plan.resolver_kinds
+    import types
+
+    assert isinstance(plan.get("root"), types.GeneratorType)
+
+
+def test_plan_flat_fallback_when_async_in_subtree() -> None:
+    async def make_async() -> int:
+        return 2
+
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.service("a", make_async)
+    builder.service("root", lambda a, v: [a, v], deps=["a", "v"])
+    plan = builder.build().compile()
+
+    assert "root" not in plan.resolver_kinds
+    assert asyncio.run(plan.aget("root")) == [2, 1]
+
+
+def test_plan_flat_nested_alias_excluded() -> None:
+    from doppy_di import Rule
+
+    builder = ContainerBuilder()
+    builder.value("child", 1)
+    builder.rules.add(
+        ("parent", "child"),
+        Rule(
+            ("parent", "child"),
+            lambda child: child,
+            lifetime="transient",
+            deps=("child",),
+            nested=True,
+        ),
+    )
+    plan = builder.build().compile()
+
+    assert ("parent", "child") not in plan.resolver_kinds
+
+
+# --- Issue #40 coverage: transient-leaf literal patterns ---------------------
+
+
+@pytest.mark.parametrize(
+    "recipe",
+    ["l", "pl", "lp", "ll", "ppl", "plp", "pll", "lpp", "lpl", "llp", "lll"],
+)
+def test_plan_flat_literal_transient_leaf_patterns(recipe: str) -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 10)
+    builder.service("t", lambda v: ["t", v], deps=["v"])
+
+    deps: List[Any] = []
+    kinds: List[str] = []
+    for ch in recipe:
+        if ch == "p":
+            deps.append("v")
+            kinds.append("p")
+        else:
+            deps.append("t")
+            kinds.append("l1")
+
+    def make_root(*args: Any) -> List[Any]:
+        return ["root", *args]
+
+    builder.service("root", make_root, deps=deps)
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "flat"
+    obj = plan.get("root")
+    assert obj[0] == "root"
+    for i, kind in enumerate(kinds):
+        expected = 10 if kind == "p" else ["t", 10]
+        assert obj[i + 1] == expected
+
+
+def test_plan_flat_generic_without_singletons() -> None:
+    builder = ContainerBuilder()
+    builder.service("t0", lambda: ["t0"])
+    builder.service("t1", lambda t0: ["t1", t0], deps=["t0"])
+    builder.service("t2", lambda t1: ["t2", t1], deps=["t1"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["t2"] == "generic"
+    a = plan.get("t2")
+    b = plan.get("t2")
+    assert a is not b
+    assert a[1][1] == ["t0"]
+
+
+def test_plan_flat_generic_expr_arity_three_and_wide() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.service("ta", lambda v: ["ta", v], deps=["v"])
+    builder.service("t1", lambda v: ["t1", v], deps=["v"])
+    builder.service("tb", lambda v: ["tb", v], deps=["v"])
+    builder.service(
+        "mid3",
+        lambda ta, t1, tb: ["m3", ta, t1, tb],
+        deps=["ta", "t1", "tb"],
+    )
+    builder.service(
+        "wide",
+        lambda a, b, c, d: ["w", a, b, c, d],
+        deps=["ta", "tb", "v", "ta"],
+    )
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["mid3"] == "flat"
+    assert plan.resolver_kinds["wide"] == "generic"
+    m = plan.get("mid3")
+    assert m[0] == "m3"
+    assert m[1] == ["ta", 1]
+    assert m[2] == ["t1", 1]
+    assert m[3] == ["tb", 1]
+    w = plan.get("wide")
+    assert w[:2] == ["w", ["ta", 1]]
+    assert w[4] == ["ta", 1]
+
+
+def test_plan_flat_generic_root_arity_two_and_three() -> None:
+    # r2/r3 children are leaf transients over a prelude value -> literal tier.
+    builder = ContainerBuilder()
+    builder.value("v", 5)
+    builder.service("t", lambda v: ["t", v], deps=["v"])
+    builder.service("u", lambda v: ["u", v], deps=["v"])
+    builder.service("r2", lambda t, u: ["r2", t, u], deps=["t", "u"])
+    builder.service("r3", lambda t, u, w: ["r3", t, u, w], deps=["t", "u", "t"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["r2"] == "flat"
+    assert plan.resolver_kinds["r3"] == "flat"
+    a = plan.get("r2")
+    assert a[0] == "r2"
+    assert a[1] == ["t", 5]
+    assert a[2] == ["u", 5]
+    b = plan.get("r3")
+    assert b[0] == "r3"
+    assert b[1] == ["t", 5]
+    assert b[2] == ["u", 5]
+    assert b[3] == ["t", 5]
+
+
+def test_plan_composed_cold_build_multi_dep_singletons() -> None:
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    builder.value("b", 2)
+    builder.value("c", 3)
+    builder.value("d", 4)
+    builder.value("e", 5)
+    builder.service(
+        "s2",
+        lambda a, b: ["s2", a, b],
+        lifetime="singleton",
+        deps=["a", "b"],
+    )
+    builder.service(
+        "s3",
+        lambda a, b, c: ["s3", a, b, c],
+        lifetime="singleton",
+        deps=["a", "b", "c"],
+    )
+    builder.service(
+        "s5",
+        lambda a, b, c, d, e: ["s5", a, b, c, d, e],
+        lifetime="singleton",
+        deps=["a", "b", "c", "d", "e"],
+    )
+    plan = builder.build().compile()
+
+    assert plan.get("s2") == ["s2", 1, 2]
+    assert plan.get("s3") == ["s3", 1, 2, 3]
+    assert plan.get("s5") == ["s5", 1, 2, 3, 4, 5]
+    assert plan.get("s2") is plan.get("s2")
+
+
+def test_plan_flat_resolver_direct_ineligible_root() -> None:
+    from doppy_di import plan as plan_mod
+
+    def make_yield() -> Any:
+        yield 1
+
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.service("y", make_yield)
+    container = builder.build()
+    p = container.compile()
+    nodes = p.nodes
+    yield_idx = next(i for i, s in enumerate(nodes) if s.yield_provider)
+    makers_none: List[Any] = [None] * len(nodes)
+
+    # Root itself ineligible.
+    assert plan_mod._build_flat_resolver(yield_idx, nodes, makers_none, container) is None
+
+    # Mid-subtree ineligible: transient root depending on the yield node.
+    builder2 = ContainerBuilder()
+    builder2.value("v", 1)
+    builder2.service("y", make_yield)
+    builder2.service("root", lambda y, v: [y, v], deps=["y", "v"])
+    c2 = builder2.build()
+    p2 = c2.compile()
+    n2 = p2.nodes
+    r_idx = next(i for i, s in enumerate(n2) if s.key == "root")
+    assert plan_mod._build_flat_resolver(r_idx, n2, makers_none[: len(n2)], c2) is None
+
+    # Prelude wrapper missing: singleton maker never built.
+    builder3 = ContainerBuilder()
+    builder3.value("v", 1)
+    builder3.service("s", lambda v: ["s", v], lifetime="singleton", deps=["v"])
+    builder3.service("root", lambda s: ["r", s], deps=["s"])
+    c3 = builder3.build()
+    p3 = c3.compile()
+    n3 = p3.nodes
+    r3_idx = next(i for i, s in enumerate(n3) if s.key == "root")
+    assert plan_mod._build_flat_resolver(r3_idx, n3, makers_none[: len(n3)], c3) is None
+
+
+def test_plan_flat_caps_fall_back(monkeypatch: Any) -> None:
+    import doppy_di.plan as plan_mod
+
+    monkeypatch.setattr(plan_mod, "_MAX_FLAT_DEPTH", 0)
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.service("t", lambda v: ["t", v], deps=["v"])
+    builder.service("root", lambda t: ["r", t], deps=["t"])
+    plan = builder.build().compile()
+
+    assert plan.resolver_kinds["root"] == "composed"
+    assert plan.get("root") == ["r", ["t", 1]]
+
+    monkeypatch.setattr(plan_mod, "_MAX_FLAT_NODES", 1)
+    plan2 = builder.build().compile()
+    assert plan2.resolver_kinds["root"] == "composed"
+
+
+def test_plan_compile_factory_signature_unreadable() -> None:
+    builder = ContainerBuilder()
+    builder.service("mp", map)
+    plan = builder.build().compile()
+    # Signature inspection failed at compile time; the key still resolves.
+    assert "mp" in plan.resolvers
+
+
+def test_plan_deserialize_skips_unknown_order_entries() -> None:
+    import json as _json
+
+    builder = ContainerBuilder()
+    builder.value("s", 42)
+    plan = builder.build().compile()
+    payload = _json.loads(plan.serialize())
+    payload["order"].append("'ghost'")
+    restored = ExecutionPlan.deserialize(_json.dumps(payload))
+    assert restored.get("s") == 42
+
+
+def test_plan_fast_walk_singleton_cache_hit_under_override() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+    assert plan.get(RegisterUser) is not None
+    with container.override(Settings, Settings()):
+        obj = plan.get(RegisterUser)
+    assert isinstance(obj, RegisterUser)
+
+
+def test_plan_fast_walk_nested_alias_direct() -> None:
+    from doppy_di import Rule
+
+    builder = ContainerBuilder()
+    builder.value("child", 1)
+    builder.rules.add(
+        ("parent", "child"),
+        Rule(
+            ("parent", "child"),
+            lambda child: child,
+            lifetime="transient",
+            deps=("child",),
+            nested=True,
+        ),
+    )
+    plan = builder.build().compile()
+    assert plan.get(("parent", "child")) == 1

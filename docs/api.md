@@ -157,6 +157,16 @@ strict.compile()
 topology, rule metadata and resolved singletons to JSON for caching or
 cross-process reuse.
 
+When a dependency subtree is fully sync (no yield/async/nested rules) and its
+transients only depend on singletons or values, the plan builds a **flattened
+resolver** at compile time (issue #40): the root closure evaluates each shared
+singleton once into local bindings, then calls the transient factories directly
+with those bindings. This removes the per-node loop and the intermediate
+transient closure frames from the hot path, while preserving singleton
+identity, transient freshness, override visibility and thread safety.
+Fallback composed resolvers (`kind == "composed"`) and the generic
+`_resolve_fast` walk are used for everything else.
+
 ## Provider facade
 
 Declarative providers convert to container rules on attribute assignment.
