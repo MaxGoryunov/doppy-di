@@ -525,3 +525,152 @@ def test_plan_deserialize_rebuilds_node_index_and_nodes() -> None:
     # not silently delegate or crash.
     with pytest.raises(ServiceNotFoundError):
         restored.get("b")
+
+
+def test_plan_closure_built_for_benchmark_graph() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+    assert set(plan.resolvers) == {
+        Settings,
+        UserRepository,
+        EmailSender,
+        AuditLog,
+        RegisterUser,
+        ApiClient,
+    }
+
+
+def test_plan_closure_used_on_hot_path() -> None:
+    calls: List[Any] = []
+    container = _build_benchmark_container()
+    plan = container.compile()
+    original = plan.resolvers[RegisterUser]
+
+    def spy() -> Any:
+        calls.append(RegisterUser)
+        return original()
+
+    plan.resolvers[RegisterUser] = spy
+    obj = plan.get(RegisterUser)
+    assert calls == [RegisterUser]
+    assert isinstance(obj, RegisterUser)
+
+
+def test_plan_closure_bypassed_when_override_active() -> None:
+    calls: List[Any] = []
+    container = _build_benchmark_container()
+    plan = container.compile()
+    original = plan.resolvers[RegisterUser]
+
+    def spy() -> Any:
+        calls.append(1)
+        return original()
+
+    plan.resolvers[RegisterUser] = spy
+    with container.override(ApiClient, ApiClient(Settings())):
+        obj = plan.get(RegisterUser)
+    assert calls == []
+    assert isinstance(obj, RegisterUser)
+
+
+def test_plan_closure_bypassed_when_tracer_active() -> None:
+    calls: List[Any] = []
+    events: List[Any] = []
+    container = _build_benchmark_container()
+    plan = container.compile()
+    original = plan.resolvers[RegisterUser]
+
+    def spy() -> Any:
+        calls.append(1)
+        return original()
+
+    plan.resolvers[RegisterUser] = spy
+    container.set_tracer(lambda key, duration, cache_hit, scope: events.append(key))
+    plan.get(RegisterUser)
+    assert calls == []
+    assert RegisterUser in events
+
+
+def test_plan_closure_arity_zero() -> None:
+    builder = ContainerBuilder()
+    builder.service("zero", lambda: 42)
+    plan = builder.build().compile()
+    assert "zero" in plan.resolvers
+    assert plan.get("zero") == 42
+
+
+def test_plan_closure_arity_one() -> None:
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    builder.service("one", lambda a: a + 1, deps=["a"])
+    plan = builder.build().compile()
+    assert "one" in plan.resolvers
+    assert plan.get("one") == 2
+
+
+def test_plan_closure_arity_two() -> None:
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    builder.value("b", 2)
+    builder.service("two", lambda a, b: a + b, deps=["a", "b"])
+    plan = builder.build().compile()
+    assert "two" in plan.resolvers
+    assert plan.get("two") == 3
+
+
+def test_plan_closure_generic_arity() -> None:
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    builder.value("b", 2)
+    builder.value("c", 3)
+    builder.service("many", lambda *deps: sum(deps), deps=["a", "b", "c"])
+    plan = builder.build().compile()
+    assert "many" in plan.resolvers
+    assert plan.get("many") == 6
+
+
+def test_plan_closure_excludes_async() -> None:
+    async def make_async() -> int:
+        return 1
+
+    builder = ContainerBuilder()
+    builder.service("a", make_async)
+    plan = builder.build().compile()
+    assert "a" not in plan.resolvers
+    assert asyncio.run(plan.aget("a")) == 1
+
+
+def test_plan_closure_excludes_yield() -> None:
+    def make_yield() -> Any:
+        yield 1
+
+    builder = ContainerBuilder()
+    builder.service("y", make_yield)
+    plan = builder.build().compile()
+    assert "y" not in plan.resolvers
+
+
+def test_plan_closure_excludes_nested() -> None:
+    from doppy_di import Rule
+
+    builder = ContainerBuilder()
+    builder.value("child", 1)
+    builder.rules.add(
+        ("parent", "child"),
+        Rule(
+            ("parent", "child"),
+            lambda child: child,
+            lifetime="transient",
+            deps=("child",),
+            nested=True,
+        ),
+    )
+    plan = builder.build().compile()
+    assert ("parent", "child") not in plan.resolvers
+
+
+def test_plan_deserialize_resolvers_empty() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+    restored = ExecutionPlan.deserialize(plan.serialize())
+    assert restored.resolvers == {}
