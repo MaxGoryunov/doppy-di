@@ -129,10 +129,16 @@ def _build_node_maker(
         def _inner() -> Any:
             return make(dep0(), dep1())
 
+    elif n == 3:
+        dep0, dep1, dep2 = dep_makers
+
+        def _inner() -> Any:
+            return make(dep0(), dep1(), dep2())
+
     else:
 
         def _inner() -> Any:
-            return make(*(d() for d in dep_makers))
+            return make(*[d() for d in dep_makers])
 
     if spec.lifetime != "singleton":
         return _inner
