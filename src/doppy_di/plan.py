@@ -143,24 +143,437 @@ def _build_node_maker(
     if spec.lifetime != "singleton":
         return _inner
 
+    return _wrap_singleton(_inner, spec.key, container)
+
+
+def _wrap_singleton(
+    inner: Callable[[], Any],
+    key: Key,
+    container: Container,
+) -> Callable[[], Any]:
+    """Wrap ``inner`` with double-checked-locking singleton caching.
+
+    Reads/writes the live container cache so identity, thread-safety and
+    override-visible semantics match :meth:`Container.get`.
+    """
     single = container.single
     lock = container.lock
-    key = spec.key
 
     def _maker() -> Any:
         cached = single.get(key, _MISSING)
         if cached is not _MISSING:
             return cached
-        value = _inner()
+        value = inner()
         with lock:
             existing = single.get(key, _MISSING)
-            if existing is _MISSING:
-                single[key] = value
-            else:
-                value = existing
+            if existing is not _MISSING:
+                return existing
+            single[key] = value
         return value
 
     return _maker
+
+
+# --- Issue #40: flattened transient subgraphs --------------------------------
+
+_PreludeFetch = Callable[[], Tuple[Any, ...]]
+_ArgExpr = Callable[[Tuple[Any, ...]], Any]
+_FlatSlot = Tuple[str, Any]
+
+_MAX_FLAT_NODES = 64
+_MAX_FLAT_DEPTH = 32
+
+
+def _make_prelude_fetch(makers: Tuple[Callable[[], Any], ...]) -> _PreludeFetch:
+    """Build a callable evaluating all prelude makers into one fresh tuple.
+
+    Arity-specialized up to four entries so the common case avoids a
+    generator expression. Called exactly once per resolution (CSE): shared
+    singletons are fetched a single time no matter how many transients
+    reference them.
+    """
+    n = len(makers)
+    if n == 0:
+
+        def _fetch0() -> Tuple[Any, ...]:
+            return ()
+
+        return _fetch0
+    if n == 1:
+        m0 = makers[0]
+
+        def _fetch1() -> Tuple[Any, ...]:
+            return (m0(),)
+
+        return _fetch1
+    if n == 2:
+        m0, m1 = makers
+
+        def _fetch2() -> Tuple[Any, ...]:
+            return (m0(), m1())
+
+        return _fetch2
+    if n == 3:
+        m0, m1, m2 = makers
+
+        def _fetch3() -> Tuple[Any, ...]:
+            return (m0(), m1(), m2())
+
+        return _fetch3
+    if n == 4:
+        m0, m1, m2, m3 = makers
+
+        def _fetch4() -> Tuple[Any, ...]:
+            return (m0(), m1(), m2(), m3())
+
+        return _fetch4
+
+    def _fetch_n() -> Tuple[Any, ...]:
+        return tuple(m() for m in makers)
+
+    return _fetch_n
+
+
+def _emit_literal_root(
+    make_r: Callable[..., Any],
+    pre: _PreludeFetch,
+    slots: Tuple[_FlatSlot, ...],
+) -> Callable[[], Any]:
+    """Build a root closure with zero intermediate DI frames.
+
+    Each slot is ``("p", j)`` — pass prelude item ``j`` straight through —
+    or ``("l1", (mk, j))`` — call a one-dependency factory directly over
+    prelude item ``j``. Transient constructor calls appear literally in the
+    root body, mirroring hand-written wiring.
+    """
+    if len(slots) == 1:
+        kind0, payload0 = slots[0]
+        if kind0 == "p":
+            d0 = cast(int, payload0)
+
+            def _lit_p1() -> Any:
+                p = pre()
+                return make_r(p[d0])
+
+            return _lit_p1
+        mk0, d0 = cast(Tuple[Callable[[Any], Any], int], payload0)
+
+        def _lit_l11() -> Any:
+            p = pre()
+            return make_r(mk0(p[d0]))
+
+        return _lit_l11
+    if len(slots) == 2:
+        kind0, payload0 = slots[0]
+        kind1, payload1 = slots[1]
+        if kind0 == "p" and kind1 == "p":
+            d0 = cast(int, payload0)
+            d1 = cast(int, payload1)
+
+            def _lit_pp() -> Any:
+                p = pre()
+                return make_r(p[d0], p[d1])
+
+            return _lit_pp
+        if kind0 == "p":
+            d0 = cast(int, payload0)
+            mk1, d1 = cast(Tuple[Callable[[Any], Any], int], payload1)
+
+            def _lit_pl() -> Any:
+                p = pre()
+                return make_r(p[d0], mk1(p[d1]))
+
+            return _lit_pl
+        mk0, d0 = cast(Tuple[Callable[[Any], Any], int], payload0)
+        if kind1 == "p":
+            d1 = cast(int, payload1)
+
+            def _lit_lp() -> Any:
+                p = pre()
+                return make_r(mk0(p[d0]), p[d1])
+
+            return _lit_lp
+        mk1, d1 = cast(Tuple[Callable[[Any], Any], int], payload1)
+
+        def _lit_ll() -> Any:
+            p = pre()
+            return make_r(mk0(p[d0]), mk1(p[d1]))
+
+        return _lit_ll
+    kind0, payload0 = slots[0]
+    kind1, payload1 = slots[1]
+    kind2, payload2 = slots[2]
+    if kind0 == "p" and kind1 == "p" and kind2 == "p":
+        d0 = cast(int, payload0)
+        d1 = cast(int, payload1)
+        d2 = cast(int, payload2)
+
+        def _lit_ppp() -> Any:
+            p = pre()
+            return make_r(p[d0], p[d1], p[d2])
+
+        return _lit_ppp
+    if kind0 == "p" and kind1 == "p":
+        d0 = cast(int, payload0)
+        d1 = cast(int, payload1)
+        mk2, d2 = cast(Tuple[Callable[[Any], Any], int], payload2)
+
+        def _lit_ppl() -> Any:
+            p = pre()
+            return make_r(p[d0], p[d1], mk2(p[d2]))
+
+        return _lit_ppl
+    if kind0 == "p" and kind2 == "p":
+        d0 = cast(int, payload0)
+        mk1, d1 = cast(Tuple[Callable[[Any], Any], int], payload1)
+        d2 = cast(int, payload2)
+
+        def _lit_plp() -> Any:
+            p = pre()
+            return make_r(p[d0], mk1(p[d1]), p[d2])
+
+        return _lit_plp
+    if kind0 == "p":
+        d0 = cast(int, payload0)
+        mk1, d1 = cast(Tuple[Callable[[Any], Any], int], payload1)
+        mk2, d2 = cast(Tuple[Callable[[Any], Any], int], payload2)
+
+        def _lit_pll() -> Any:
+            p = pre()
+            return make_r(p[d0], mk1(p[d1]), mk2(p[d2]))
+
+        return _lit_pll
+    mk0, d0 = cast(Tuple[Callable[[Any], Any], int], payload0)
+    if kind1 == "p" and kind2 == "p":
+        d1 = cast(int, payload1)
+        d2 = cast(int, payload2)
+
+        def _lit_lpp() -> Any:
+            p = pre()
+            return make_r(mk0(p[d0]), p[d1], p[d2])
+
+        return _lit_lpp
+    if kind1 == "p":
+        d1 = cast(int, payload1)
+        mk2, d2 = cast(Tuple[Callable[[Any], Any], int], payload2)
+
+        def _lit_lpl() -> Any:
+            p = pre()
+            return make_r(mk0(p[d0]), p[d1], mk2(p[d2]))
+
+        return _lit_lpl
+    if kind2 == "p":
+        mk1, d1 = cast(Tuple[Callable[[Any], Any], int], payload1)
+        d2 = cast(int, payload2)
+
+        def _lit_llp() -> Any:
+            p = pre()
+            return make_r(mk0(p[d0]), mk1(p[d1]), p[d2])
+
+        return _lit_llp
+    mk1, d1 = cast(Tuple[Callable[[Any], Any], int], payload1)
+    mk2, d2 = cast(Tuple[Callable[[Any], Any], int], payload2)
+
+    def _lit_lll() -> Any:
+        p = pre()
+        return make_r(mk0(p[d0]), mk1(p[d1]), mk2(p[d2]))
+
+    return _lit_lll
+
+
+def _emit_ref(j: int) -> _ArgExpr:
+    """Build an argument expression reading prelude item ``j``."""
+
+    def _ref(p: Tuple[Any, ...]) -> Any:
+        return p[j]
+
+    return _ref
+
+
+def _emit_expr(make: Callable[..., Any], args: Tuple[_ArgExpr, ...]) -> _ArgExpr:
+    """Build an expression closure invoking ``make`` over arg expressions."""
+    k = len(args)
+    if k == 0:
+
+        def _x0(p: Tuple[Any, ...]) -> Any:
+            return make()
+
+        return _x0
+    if k == 1:
+        a0 = args[0]
+
+        def _x1(p: Tuple[Any, ...]) -> Any:
+            return make(a0(p))
+
+        return _x1
+    if k == 2:
+        a0, a1 = args
+
+        def _x2(p: Tuple[Any, ...]) -> Any:
+            return make(a0(p), a1(p))
+
+        return _x2
+    if k == 3:
+        a0, a1, a2 = args
+
+        def _x3(p: Tuple[Any, ...]) -> Any:
+            return make(a0(p), a1(p), a2(p))
+
+        return _x3
+
+    def _xn(p: Tuple[Any, ...]) -> Any:
+        return make(*[a(p) for a in args])
+
+    return _xn
+
+
+def _emit_generic_root(
+    make_r: Callable[..., Any],
+    pre: _PreludeFetch,
+    args: Tuple[_ArgExpr, ...],
+) -> Callable[[], Any]:
+    """Build a root closure evaluating the prelude once, then arg exprs."""
+    k = len(args)
+    if k == 0:
+
+        def _g0() -> Any:
+            return make_r()
+
+        return _g0
+    if k == 1:
+        a0 = args[0]
+
+        def _g1() -> Any:
+            p = pre()
+            return make_r(a0(p))
+
+        return _g1
+    if k == 2:
+        a0, a1 = args
+
+        def _g2() -> Any:
+            p = pre()
+            return make_r(a0(p), a1(p))
+
+        return _g2
+    if k == 3:
+        a0, a1, a2 = args
+
+        def _g3() -> Any:
+            p = pre()
+            return make_r(a0(p), a1(p), a2(p))
+
+        return _g3
+
+    def _gn() -> Any:
+        p = pre()
+        return make_r(*[a(p) for a in args])
+
+    return _gn
+
+
+def _flat_node_eligible(spec: _NodeSpec) -> bool:
+    """Return True when ``spec`` may participate in a flattened resolver."""
+    return (
+        spec.make is not None
+        and not spec.yield_provider
+        and not spec.async_yield_provider
+        and not spec.is_async
+        and not spec.nested
+        and spec.lifetime in ("transient", "singleton")
+    )
+
+
+def _build_flat_resolver(
+    root_idx: int,
+    nodes: Tuple[_NodeSpec, ...],
+    makers: List[Optional[Callable[[], Any]]],
+    container: Container,
+) -> Optional[Tuple[str, Callable[[], Any]]]:
+    """Try to build a flattened resolver for ``nodes[root_idx]``.
+
+    Returns ``(kind, resolver)`` where kind is ``"flat"`` (zero intermediate
+    DI frames: prelude CSE plus literal factory calls) or ``"generic"``
+    (prelude CSE plus per-node expression closures), or ``None`` when the
+    subtree is ineligible and the composed resolver must be kept.
+    """
+    root = nodes[root_idx]
+    if not _flat_node_eligible(root):
+        return None
+
+    # Collect the dependency subtree iteratively.
+    seen: set[int] = set()
+    order: List[int] = []
+    stack: List[Tuple[int, int]] = [(root_idx, 0)]
+    while stack:
+        idx, depth = stack.pop()
+        if idx in seen:
+            continue
+        if depth > _MAX_FLAT_DEPTH or len(order) >= _MAX_FLAT_NODES:
+            return None
+        spec = nodes[idx]
+        if not _flat_node_eligible(spec):
+            return None
+        seen.add(idx)
+        order.append(idx)
+        for dep in spec.deps_idx:
+            stack.append((dep, depth + 1))
+
+    # Prelude: subtree singletons in topo order, each with a ready wrapper.
+    prelude_idx = sorted(i for i in order if nodes[i].lifetime == "singleton")
+    for i in prelude_idx:
+        if makers[i] is None:
+            return None
+    pre = _make_prelude_fetch(tuple(cast(Callable[[], Any], makers[i]) for i in prelude_idx))
+    prelude_pos = {i: j for j, i in enumerate(prelude_idx)}
+
+    transient_idx = [i for i in order if i != root_idx and nodes[i].lifetime == "transient"]
+    leaf_only = all(all(d in prelude_pos for d in nodes[i].deps_idx) for i in transient_idx)
+
+    make_r = cast(Callable[..., Any], root.make)
+
+    if (
+        leaf_only
+        and 0 < len(root.deps_idx) <= 3
+        and all(len(nodes[i].deps_idx) == 1 for i in transient_idx)
+    ):
+        slots: List[_FlatSlot] = []
+        for d in root.deps_idx:
+            if d in prelude_pos:
+                slots.append(("p", prelude_pos[d]))
+            else:
+                leaf = nodes[d]
+                slots.append(
+                    (
+                        "l1",
+                        (
+                            cast(Callable[[Any], Any], leaf.make),
+                            prelude_pos[leaf.deps_idx[0]],
+                        ),
+                    )
+                )
+        inner = _emit_literal_root(make_r, pre, tuple(slots))
+        kind = "flat"
+    else:
+        exprs: Dict[int, _ArgExpr] = {}
+
+        def _arg_for(dep: int) -> _ArgExpr:
+            if dep in prelude_pos:
+                return _emit_ref(prelude_pos[dep])
+            return exprs[dep]
+
+        for i in sorted(transient_idx):
+            spec = nodes[i]
+            exprs[i] = _emit_expr(
+                cast(Callable[..., Any], spec.make),
+                tuple(_arg_for(d) for d in spec.deps_idx),
+            )
+        inner = _emit_generic_root(make_r, pre, tuple(_arg_for(d) for d in root.deps_idx))
+        kind = "generic"
+
+    if root.lifetime == "singleton":
+        return kind, _wrap_singleton(inner, root.key, container)
+    return kind, inner
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +599,7 @@ class ExecutionPlan:
     node_index: Dict[Key, int] = field(default_factory=dict)
     nodes: Tuple[_NodeSpec, ...] = field(default_factory=tuple)
     resolvers: Dict[Key, Callable[[], Any]] = field(default_factory=dict)
+    resolver_kinds: Dict[Key, str] = field(default_factory=dict)
 
     def _resolve_fast(self, lookup: Key) -> Any:
         """Resolve ``lookup`` using the precomputed node graph.
@@ -432,6 +846,20 @@ class ExecutionPlan:
             makers[i] = maker
             resolvers[spec.key] = maker
 
+        # Issue #40: overwrite composed resolvers with flattened ones wherever
+        # the dependency subtree qualifies. Falls back silently otherwise.
+        nodes_tuple = tuple(nodes)
+        resolver_kinds: Dict[Key, str] = dict.fromkeys(resolvers, "composed")
+        for i, spec in enumerate(nodes):
+            if spec.key not in resolvers:
+                continue
+            flat = _build_flat_resolver(i, nodes_tuple, makers, container)
+            if flat is None:
+                continue
+            kind, fn = flat
+            resolvers[spec.key] = fn
+            resolver_kinds[spec.key] = kind
+
         policy = container.config.compile_policy.value
         return cls(
             container=container,
@@ -442,8 +870,9 @@ class ExecutionPlan:
             singletons={},
             compile_policy=policy,
             node_index=key_to_idx,
-            nodes=tuple(nodes),
+            nodes=nodes_tuple,
             resolvers=resolvers,
+            resolver_kinds=resolver_kinds,
         )
 
     def _singleton_snapshot(self) -> Dict[str, Any]:
