@@ -1,0 +1,176 @@
+{
+  "environment": [
+    "Python: 3.12.13 (AMD64)",
+    "Platform: Windows-10-10.0.19045-SP0",
+    "CPU count: 8",
+    "Benchmark commit: unknown",
+    "injex: 1.9.0",
+    "doppy-di: 2.20.0.post1.dev0+g4192588a6.d20260821",
+    "Warmup iterations: 10000",
+    "Rounds: 9"
+  ],
+  "generated": "20260822T114228Z",
+  "scenarios": {
+    "deep_chain_d16": {
+      "method": "100k iterations x 9 rounds, warm",
+      "note": "Middleware/pipeline shape. Pre-issue-40 doppy-di pays one closure frame per level; flattening makes frame count depth-independent. Expected post-40: tie or win.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 9.378114,
+          "median": 5.1509409999999995,
+          "min": 4.011608
+        },
+        "injex": {
+          "max": 9.307075999999999,
+          "median": 3.8203780000000003,
+          "min": 3.4196329999999997
+        },
+        "manual": {
+          "max": 8.139301999999999,
+          "median": 3.570191,
+          "min": 3.384958
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "us/op"
+    },
+    "first_touch_sweep": {
+      "method": "9 sweeps, fresh container per sweep, setup untimed",
+      "note": "Boot fan-out. Injex exec-compiles each root creator lazily inside the measured region; doppy-di compiles upfront. Expected winner: doppy-di compiled.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 3.4418,
+          "median": 2.5487,
+          "min": 2.504
+        },
+        "injex": {
+          "max": 5.6908,
+          "median": 3.581,
+          "min": 3.4579
+        },
+        "manual": {
+          "max": 0.0656,
+          "median": 0.0323,
+          "min": 0.031
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "ms/sweep (48 roots)"
+    },
+    "round_robin_roots": {
+      "method": "150k iterations x 9 rounds, warm, 8 roots cycled",
+      "note": "Request dispatcher alternating across 8 roots. doppy-di resolvers are zero-arg closures; Injex threads scope through nested creator calls. Expected: tie or small win.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 4.077068000000001,
+          "median": 1.6657453333333332,
+          "min": 1.5447413333333333
+        },
+        "injex": {
+          "max": 2.578844666666667,
+          "median": 1.2266426666666665,
+          "min": 1.1384033333333334
+        },
+        "manual": {
+          "max": 1.0770926666666667,
+          "median": 1.0020506666666666,
+          "min": 0.9690833333333334
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "us/op"
+    },
+    "singleton_fetch_loop": {
+      "method": "250k iterations x 9 rounds, warm, cached singleton",
+      "note": "Per-request cached-service lookup. Parity guard: catches guard-check bloat in ExecutionPlan.get. Expected: tie.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 0.3333292,
+          "median": 0.289408,
+          "min": 0.2755612
+        },
+        "injex": {
+          "max": 0.42424680000000003,
+          "median": 0.1918752,
+          "min": 0.1705736
+        },
+        "manual": {
+          "max": 0.14916200000000002,
+          "median": 0.133796,
+          "min": 0.1196344
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "us/op"
+    },
+    "threaded_resolve": {
+      "method": "4 threads x 40k iters x 7 samples, wall-clock per thread",
+      "note": "Web-worker contention on shared graph. Both lock only on singleton miss. Expected: tie; regression means a lock leaked onto the warm path.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 11.82695750030689,
+          "median": 5.266824999125674,
+          "min": 3.9042949996655807
+        },
+        "injex": {
+          "max": 8.636992500396445,
+          "median": 3.006864999770187,
+          "min": 1.7139875009888783
+        },
+        "manual": {
+          "max": 7.687960000475869,
+          "median": 1.8118324980605394,
+          "min": 1.3347350002732128
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "us/op (4 threads)"
+    },
+    "value_heavy_root": {
+      "method": "150k iterations x 9 rounds, warm",
+      "note": "Config-driven bootstrap consuming 8 constants. Current doppy-di fast path spends one maker frame per value; Injex folds constants flat. Expected: loss until constant inlining lands.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 3.6482040000000002,
+          "median": 1.5857233333333334,
+          "min": 1.5130733333333333
+        },
+        "injex": {
+          "max": 1.1928066666666666,
+          "median": 1.1672773333333335,
+          "min": 0.5213306666666666
+        },
+        "manual": {
+          "max": 5.665044666666667,
+          "median": 2.6944766666666666,
+          "min": 2.568868
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "us/op"
+    },
+    "wide_service_d10": {
+      "method": "100k iterations x 9 rounds, warm",
+      "note": "Typical application service with 10 deps over 2 singletons. Amplifies CSE and transient-inlining gains. Expected post-40: tie or win.",
+      "results": {
+        "doppy-di compiled": {
+          "max": 8.323001,
+          "median": 3.910072,
+          "min": 3.599876
+        },
+        "injex": {
+          "max": 4.561,
+          "median": 2.116212,
+          "min": 1.927702
+        },
+        "manual": {
+          "max": 4.567785,
+          "median": 1.9833610000000002,
+          "min": 1.895268
+        }
+      },
+      "semantic_check": "PASS",
+      "unit": "us/op"
+    }
+  }
+}
