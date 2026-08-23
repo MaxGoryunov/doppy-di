@@ -31,7 +31,7 @@ from injex import Container as InjexContainer
 from lagom import Container as LagomContainer
 from wireup import injectable
 
-from doppy_di import ContainerBuilder
+from doppy_di import Container, ContainerBuilder
 
 
 @dataclass(frozen=True)
@@ -237,8 +237,7 @@ def setup_wireup_same_scope() -> Callable[[], WRegisterUser]:
     return lambda: scoped.get(WRegisterUser)  # type: ignore[no-any-return]
 
 
-def setup_doppy_di() -> Callable[[], RegisterUser]:
-    """doppy-di adapter: normal production-like mode."""
+def _build_doppy_di() -> Container:
     builder = ContainerBuilder()
     builder.value(Settings, settings)
     builder.service(ApiClient, ApiClient, lifetime="singleton", deps=[Settings])
@@ -251,57 +250,66 @@ def setup_doppy_di() -> Callable[[], RegisterUser]:
         lifetime="transient",
         deps=[UserRepository, EmailSender, AuditLog],
     )
-    container = builder.build()
+    return builder.build()
+
+
+def setup_doppy_di() -> Callable[[], RegisterUser]:
+    """doppy-di adapter: normal production-like mode."""
+    container = _build_doppy_di()
     container.get(RegisterUser)
     return lambda: container.get(RegisterUser)
 
 
 def setup_doppy_di_compiled() -> Callable[[], RegisterUser]:
-    """doppy-di adapter: compiled ExecutionPlan mode (issue #32)."""
-    builder = ContainerBuilder()
-    builder.value(Settings, settings)
-    builder.service(ApiClient, ApiClient, lifetime="singleton", deps=[Settings])
-    builder.service(UserRepository, UserRepository, lifetime="transient", deps=[ApiClient])
-    builder.service(EmailSender, EmailSender, lifetime="transient", deps=[ApiClient])
-    builder.service(AuditLog, AuditLog, lifetime="transient", deps=[Settings])
-    builder.service(
-        RegisterUser,
-        RegisterUser,
-        lifetime="transient",
-        deps=[UserRepository, EmailSender, AuditLog],
-    )
-    container = builder.build()
-    plan = container.compile()
+    """doppy-di adapter: compiled ExecutionPlan, allow-override path."""
+    container = _build_doppy_di()
+    plan = container.compile(allow_post_compile_overrides=True)
+    plan.get(RegisterUser)
+    return lambda: plan.get(RegisterUser)
+
+
+def setup_doppy_di_frozen() -> Callable[[], RegisterUser]:
+    """doppy-di adapter: compiled ExecutionPlan, frozen lockless path."""
+    container = _build_doppy_di()
+    plan = container.compile(allow_post_compile_overrides=False)
     plan.get(RegisterUser)
     return lambda: plan.get(RegisterUser)
 
 
 def bench(
-    name: str,
-    fn: Callable[[], object],
+    cases: list[tuple[str, Callable[[], object]]],
     *,
     iterations: int = 250_000,
-    rounds: int = 9,
-) -> tuple[str, float, float, float]:
-    for _ in range(12_000):
-        fn()
+    rounds: int = 11,
+) -> dict[str, tuple[float, float, float]]:
+    """Interleaved A/B benchmark.
 
-    samples = []
+    All cases are warmed up first, then measured round-by-round in
+    interleaved order (A/B/A/B...) so GC and system noise hit every case
+    equally. GC is disabled for the whole measurement window. Returns
+    ``{name: (median, min, max)}`` in ns/op.
+    """
+    for _, fn in cases:
+        for _ in range(12_000):
+            fn()
+
+    samples: dict[str, list[float]] = {name: [] for name, _ in cases}
     gc_was_enabled = gc.isenabled()
     gc.disable()
     try:
         for _ in range(rounds):
-            start = time.perf_counter_ns()
-            for _ in range(iterations):
-                obj = fn()
-            end = time.perf_counter_ns()
-            assert obj is not None
-            samples.append((end - start) / iterations)
+            for name, fn in cases:
+                start = time.perf_counter_ns()
+                for _ in range(iterations):
+                    obj = fn()
+                end = time.perf_counter_ns()
+                assert obj is not None
+                samples[name].append((end - start) / iterations)
     finally:
         if gc_was_enabled:
             gc.enable()
 
-    return name, statistics.median(samples), min(samples), max(samples)
+    return {name: (statistics.median(vals), min(vals), max(vals)) for name, vals in samples.items()}
 
 
 def package_version(name: str) -> str:
@@ -396,6 +404,7 @@ def main() -> None:
         ("injex", setup_injex()),
         ("doppy-di", setup_doppy_di()),
         ("doppy-di compiled", setup_doppy_di_compiled()),
+        ("doppy-di frozen", setup_doppy_di_frozen()),
         ("wireup same scope", setup_wireup_same_scope()),
         ("wireup scope/op", setup_wireup_scope_per_op()),
         ("dishka", setup_dishka()),
@@ -414,15 +423,19 @@ def main() -> None:
 
     print("\nResolve benchmark")
     print("singleton Settings/ApiClient + transient Repo/Email/Audit/RegisterUser")
-    results = [bench(name, fn) for name, fn in cases]
-    baseline = {name: median for name, median, _, _ in results}["manual"]
+    results = bench(cases)
+    baseline = results["manual"][0]
 
     print(f"{'library':<22} {'median µs/op':>14} {'x manual':>10} {'min..max µs':>18}")
-    for name, median, min_value, max_value in sorted(results, key=lambda row: row[1]):
+    for name, (median, min_value, max_value) in sorted(results.items(), key=lambda row: row[1][0]):
         print(
             f"{name:<22} {median / 1000:>14.3f} {median / baseline:>10.2f} "
             f"{min_value / 1000:>7.3f}..{max_value / 1000:<7.3f}"
         )
+
+    frozen = results["doppy-di frozen"][0]
+    allow = results["doppy-di compiled"][0]
+    print(f"\nfrozen/allow ratio (median): {frozen / allow:.3f}")
 
     print("\nSemantic checks")
     semantic = semantic_checks(cases)
@@ -472,7 +485,7 @@ def main() -> None:
         f"{'Implementation':<22} {'Median us/op':>14} {'Min us/op':>10} "
         f"{'Max us/op':>10} {'Overhead vs manual':>20}",
     ]
-    for name, median, min_value, max_value in sorted(results, key=lambda row: row[1]):
+    for name, (median, min_value, max_value) in sorted(results.items(), key=lambda row: row[1][0]):
         overhead = ((median / baseline) - 1.0) * 100.0
         raw_lines.append(
             f"{name:<22} {median / 1000:>14.3f} {min_value / 1000:>10.3f} "
@@ -516,7 +529,7 @@ def main() -> None:
                 "min_us_per_op": min_value / 1000,
                 "max_us_per_op": max_value / 1000,
             }
-            for name, median, min_value, max_value in results
+            for name, (median, min_value, max_value) in results.items()
         },
         "semantic_checks": semantic,
         "cold_start_ms": cold_results,
