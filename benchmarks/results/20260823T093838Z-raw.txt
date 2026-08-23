@@ -1,0 +1,68 @@
+Environment
+-----------
+Python: 3.12.13 (AMD64)
+Platform: Windows-10-10.0.19045-SP0
+Processor: Intel64 Family 6 Model 142 Stepping 12, GenuineIntel
+CPU count: 8
+Benchmark commit: unknown
+injex: 1.9.0
+wireup: 2.12.0
+dishka: 1.10.1
+dependency-injector: 4.49.1
+lagom: 2.7.7
+punq: 0.8.0
+doppy-di: 2.20.0.post1.dev0+g4192588a6.d20260821
+Warmup iterations: 12_000
+Measured iterations: 250_000
+Samples: 9
+
+Graph
+-----
+Settings: singleton
+ApiClient(Settings): singleton
+UserRepository(ApiClient): transient
+EmailSender(ApiClient): transient
+AuditLog(Settings): transient
+RegisterUser(UserRepository, EmailSender, AuditLog): transient
+
+Results
+-------
+Implementation           Median us/op  Min us/op  Max us/op   Overhead vs manual
+manual                          0.918      0.796      1.888                +0.0%
+injex                           0.972      0.876      2.388                +5.9%
+doppy-di compiled               1.326      1.225      3.298               +44.5%
+doppy-di frozen                 1.363      1.168      2.436               +48.4%
+wireup same scope               1.807      1.722      4.425               +96.9%
+dependency-injector             2.316      2.017      4.396              +152.3%
+dishka                          2.712      1.731      4.425              +195.5%
+wireup scope/op                 3.159      2.943      6.359              +244.1%
+doppy-di                       15.999     12.491     18.179             +1642.8%
+lagom                          28.621     26.048     35.348             +3017.7%
+punq                          196.565    182.553    204.188            +21312.2%
+
+Semantic checks
+---------------
+manual: PASS
+injex: PASS
+doppy-di: PASS
+doppy-di compiled: PASS
+doppy-di frozen: PASS
+wireup same scope: FAIL (AssertionError())
+wireup scope/op: FAIL (AssertionError())
+dishka: PASS
+dependency-injector: PASS
+lagom: FAIL (AssertionError())
+punq: FAIL (AssertionError())
+
+Cold-start results
+------------------
+Implementation         Build+register+validate+first resolve
+doppy-di                        0.083 ms
+injex                           0.202 ms
+lagom                           0.339 ms
+dependency-injector             0.384 ms
+doppy-di compiled               0.401 ms
+punq                            0.421 ms
+dishka                          3.574 ms
+wireup scope/op                 4.226 ms
+wireup same scope               4.404 ms

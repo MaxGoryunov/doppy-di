@@ -875,6 +875,11 @@ class ExecutionPlan:
                 deps = spec.deps_idx
                 args = [frozen[nodes[j].key] for j in deps]
                 frozen[spec.key] = spec.make(*args) if args else spec.make()
+            # Preserve cross-plan identity: frozen singletons must be visible
+            # through the live container cache so that
+            # ``plan.get(s) is container.get(s)`` holds. Frozen instances win
+            # over any pre-compile resolution.
+            container.single.update(frozen)
             object.__setattr__(container, "_compiled_plan", None)
 
         makers: List[Optional[Callable[[], Any]]] = [None] * len(nodes)

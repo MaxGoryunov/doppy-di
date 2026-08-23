@@ -141,6 +141,68 @@ def test_plan_frozen_blocks_post_compile_override() -> None:
     assert plan.get(ApiClient) is not fake
 
 
+def test_plan_frozen_singleton_identity_with_container() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    a = plan.get(ApiClient)
+    b = plan.get(ApiClient)
+    assert a is b
+    assert a is container.get(ApiClient)
+
+
+def test_plan_frozen_nested_singleton_uses_resolve_fast() -> None:
+    from doppy_di import Rule
+
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.rules.add(
+        ("s", "v"),
+        Rule(
+            ("s", "v"),
+            lambda v: {"s": v},
+            lifetime="singleton",
+            deps=("v",),
+            nested=True,
+        ),
+    )
+    container = builder.build()
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    # Nested singletons are excluded from resolvers, so get() must fall
+    # through to _resolve_fast and read the frozen constant.
+    assert plan.get(("s", "v")) == {"s": 1}
+    assert plan.get(("s", "v")) is container.get(("s", "v"))
+
+
+def test_plan_frozen_recursive_singleton_chain_identity() -> None:
+    class S1:
+        pass
+
+    class S2:
+        def __init__(self, s1: S1) -> None:
+            self.s1 = s1
+
+    class S3:
+        def __init__(self, s2: S2) -> None:
+            self.s2 = s2
+
+    builder = ContainerBuilder()
+    builder.service(S1, S1, lifetime="singleton")
+    builder.service(S2, S2, lifetime="singleton", deps=[S1])
+    builder.service(S3, S3, lifetime="singleton", deps=[S2])
+    container = builder.build()
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    assert set(plan._frozen) == {S1, S2, S3}
+    assert plan.get(S1) is container.get(S1)
+    assert plan.get(S2) is container.get(S2)
+    assert plan.get(S3) is container.get(S3)
+    assert plan.get(S1) is plan.get(S1)
+    assert plan.get(S2).s1 is plan.get(S1)
+    assert plan.get(S3).s2 is plan.get(S2)
+
+
 def test_plan_strict_blocks_override() -> None:
     builder = ContainerBuilder(compile_policy=CompilePolicy.STRICT)
     builder.value("x", 1)
