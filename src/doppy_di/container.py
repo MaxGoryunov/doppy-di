@@ -1050,11 +1050,14 @@ class OverrideLayer:
     __slots__ = ("values",)
 
     def __init__(self, container: Container, values: Dict[Key, Any]) -> None:
-        if (
-            container.config.compile_policy == CompilePolicy.STRICT
-            and getattr(container, "_compiled_plan", None) is not None
+        plan = getattr(container, "_compiled_plan", None)
+        if plan is not None and (
+            container.config.compile_policy == CompilePolicy.STRICT or plan.frozen
         ):
-            raise RuntimeError("Cannot override after compile() under CompilePolicy.STRICT")
+            raise RuntimeError(
+                "Cannot override after compile() under CompilePolicy.STRICT "
+                "or when the plan is frozen"
+            )
         self.values: Dict[Key, Any] = {}
         for key, value in values.items():
             if not container.config.ruleset.has(key):
@@ -2363,6 +2366,7 @@ class Container:
     def compile(
         self,
         copy_parent_rules: bool = True,
+        allow_post_compile_overrides: bool = True,
     ) -> "ExecutionPlan":
         """Compile the dependency graph into an immutable execution plan.
 
@@ -2380,6 +2384,12 @@ class Container:
         parent and local rules is taken so the plan is stable even if the
         parent is mutated later.
 
+        When ``allow_post_compile_overrides`` is False, the plan freezes the
+        graph at compile time: singletons are pre-resolved and the plan uses
+        lockless resolvers. Any later ``override()`` on this container raises
+        ``RuntimeError``. This is a breaking behavioral change for callers
+        relying on override visibility through a compiled plan.
+
         Raises:
             MissingDependencyError: If a rule depends on an unregistered key.
             DependencyCycleError: If the graph contains a cycle.
@@ -2396,8 +2406,12 @@ class Container:
         """
         from .plan import ExecutionPlan
 
-        plan = ExecutionPlan.from_container(self, copy_parent_rules=copy_parent_rules)
-        if self.config.compile_policy == CompilePolicy.STRICT:
+        plan = ExecutionPlan.from_container(
+            self,
+            copy_parent_rules=copy_parent_rules,
+            allow_post_compile_overrides=allow_post_compile_overrides,
+        )
+        if self.config.compile_policy == CompilePolicy.STRICT or plan.frozen:
             object.__setattr__(self, "_compiled_plan", plan)
         return plan
 
