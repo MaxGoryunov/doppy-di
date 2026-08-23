@@ -100,6 +100,7 @@ def _build_node_maker(
     spec: _NodeSpec,
     dep_makers: Tuple[Callable[[], Any], ...],
     container: Container,
+    frozen: Optional[Dict[Key, Any]] = None,
 ) -> Callable[[], Any]:
     """Build a flat closure that resolves ``spec`` from pre-bound makers.
 
@@ -107,9 +108,15 @@ def _build_node_maker(
     comprehension. Singleton wrappers read/write the live container cache
     with double-checked locking, preserving identity, thread-safety and
     override-visible semantics of :meth:`Container.get`.
+
+    When ``frozen`` is given, singletons are pre-resolved constants and the
+    resolver reads ``frozen[spec.key]`` directly with no lock.
     """
     make = spec.make
     assert make is not None
+
+    if frozen is not None and spec.lifetime == "singleton":
+        return lambda: frozen[spec.key]
 
     n = len(dep_makers)
     if n == 0:
@@ -143,6 +150,8 @@ def _build_node_maker(
     if spec.lifetime != "singleton":
         return _inner
 
+    if frozen is not None:
+        return _inner
     return _wrap_singleton(_inner, spec.key, container)
 
 
@@ -489,6 +498,7 @@ def _build_flat_resolver(
     nodes: Tuple[_NodeSpec, ...],
     makers: List[Optional[Callable[[], Any]]],
     container: Container,
+    frozen: Optional[Dict[Key, Any]] = None,
 ) -> Optional[Tuple[str, Callable[[], Any]]]:
     """Try to build a flattened resolver for ``nodes[root_idx]``.
 
@@ -572,6 +582,8 @@ def _build_flat_resolver(
         kind = "generic"
 
     if root.lifetime == "singleton":
+        if frozen is not None:
+            return kind, lambda: frozen[root.key]
         return kind, _wrap_singleton(inner, root.key, container)
     return kind, inner
 
@@ -600,6 +612,8 @@ class ExecutionPlan:
     nodes: Tuple[_NodeSpec, ...] = field(default_factory=tuple)
     resolvers: Dict[Key, Callable[[], Any]] = field(default_factory=dict)
     resolver_kinds: Dict[Key, str] = field(default_factory=dict)
+    _frozen: Dict[Key, Any] = field(default_factory=dict)
+    frozen: bool = False
 
     def _resolve_fast(self, lookup: Key) -> Any:
         """Resolve ``lookup`` using the precomputed node graph.
@@ -609,6 +623,9 @@ class ExecutionPlan:
         overrides and cross-plan identity are preserved. Transients are built
         fresh on every call. No reflection, no locks on the warm path, no
         ``ResolveContext`` allocation.
+
+        When the plan is frozen, singletons are pre-resolved constants read
+        from ``_frozen`` with no lock and no override check.
         """
         container = self.container
         idx = self.node_index.get(lookup)
@@ -653,16 +670,21 @@ class ExecutionPlan:
         resolved = [None] * (idx + 1)
         for i in range(idx + 1):
             spec = nodes[i]
-            if override_layers:
-                overridden = container._resolve_override(spec.key)
-                if overridden is not _unset:
-                    resolved[i] = overridden
+            if self.frozen:
+                if spec.lifetime == "singleton":
+                    resolved[i] = self._frozen[spec.key]
                     continue
-            if spec.lifetime == "singleton":
-                cached = single.get(spec.key, _MISSING)
-                if cached is not _MISSING:
-                    resolved[i] = cached
-                    continue
+            else:
+                if override_layers:
+                    overridden = container._resolve_override(spec.key)
+                    if overridden is not _unset:
+                        resolved[i] = overridden
+                        continue
+                if spec.lifetime == "singleton":
+                    cached = single.get(spec.key, _MISSING)
+                    if cached is not _MISSING:
+                        resolved[i] = cached
+                        continue
 
             if spec.yield_provider or spec.async_yield_provider or spec.is_async:
                 return container.get(spec.key)
@@ -674,7 +696,7 @@ class ExecutionPlan:
             deps = spec.deps_idx
             obj = make(*[resolved[j] for j in deps]) if deps else make()
 
-            if spec.lifetime == "singleton":
+            if not self.frozen and spec.lifetime == "singleton":
                 with lock:
                     existing = single.get(spec.key, _MISSING)
                     if existing is _MISSING:
@@ -693,16 +715,15 @@ class ExecutionPlan:
         """Resolve ``key`` using the precomputed order.
 
         Semantics match ``container.get(key)``: singletons share the container
-        cache, scopes are honoured, overrides are applied.
+        cache, scopes are honoured, overrides are applied. When the plan is
+        frozen, overrides are disallowed and singletons are pre-resolved.
         """
         lookup = (key, qualifier) if qualifier is not None else key
         if self.nodes:
             container = self.container
             resolvers = self.resolvers
-            if (
-                container is not None
-                and not container._override_layers
-                and container._tracer is None
+            if container is not None and (
+                self.frozen or (not container._override_layers and container._tracer is None)
             ):
                 resolver = resolvers.get(lookup)
                 if resolver is not None:
@@ -730,7 +751,10 @@ class ExecutionPlan:
 
     @classmethod
     def from_container(
-        cls, container: Container, copy_parent_rules: bool = True
+        cls,
+        container: Container,
+        copy_parent_rules: bool = True,
+        allow_post_compile_overrides: bool = True,
     ) -> "ExecutionPlan":
         """Build an :class:`ExecutionPlan` from a container.
 
@@ -738,7 +762,19 @@ class ExecutionPlan:
         captures a topological ordering from a snapshot of the rule set.
         Raises :class:`MissingDependencyError` for unregistered dependencies
         and :class:`DependencyCycleError` for cycles.
+
+        When ``allow_post_compile_overrides`` is False, the plan freezes the
+        graph at compile time: singletons are pre-resolved into
+        ``_frozen`` and the plan uses lockless resolvers. Any later
+        ``override(...)`` on the container raises ``RuntimeError``. This is
+        a breaking behavioral change for callers relying on override
+        visibility through a compiled plan.
         """
+        if not allow_post_compile_overrides and container._override_layers:
+            raise RuntimeError(
+                "Cannot compile with allow_post_compile_overrides=False "
+                "while an override layer is active"
+            )
         ruleset = container.config.ruleset
 
         errors: List[Tuple[Key, Key]] = []
@@ -828,6 +864,19 @@ class ExecutionPlan:
                 )
             )
 
+        frozen: Optional[Dict[Key, Any]] = None
+        if not allow_post_compile_overrides:
+            frozen = {}
+            for _i, spec in enumerate(nodes):
+                if spec.lifetime != "singleton":
+                    continue
+                if spec.make is None:
+                    continue
+                deps = spec.deps_idx
+                args = [frozen[nodes[j].key] for j in deps]
+                frozen[spec.key] = spec.make(*args) if args else spec.make()
+            object.__setattr__(container, "_compiled_plan", None)
+
         makers: List[Optional[Callable[[], Any]]] = [None] * len(nodes)
         resolvers: Dict[Key, Callable[[], Any]] = {}
         for i, spec in enumerate(nodes):
@@ -842,18 +891,21 @@ class ExecutionPlan:
             if not all(makers[j] is not None for j in spec.deps_idx):
                 continue
             dep_makers = tuple(cast(Callable[[], Any], makers[j]) for j in spec.deps_idx)
-            maker = _build_node_maker(spec, dep_makers, container)
+            maker = _build_node_maker(spec, dep_makers, container, frozen)
             makers[i] = maker
             resolvers[spec.key] = maker
 
-        # Issue #40: overwrite composed resolvers with flattened ones wherever
+        # Issue #1: overwrite the same resolvers with flattened ones wherever
         # the dependency subtree qualifies. Falls back silently otherwise.
         nodes_tuple = tuple(nodes)
         resolver_kinds: Dict[Key, str] = dict.fromkeys(resolvers, "composed")
         for i, spec in enumerate(nodes):
             if spec.key not in resolvers:
                 continue
-            flat = _build_flat_resolver(i, nodes_tuple, makers, container)
+            if frozen is not None and spec.lifetime == "singleton":
+                resolver_kinds[spec.key] = "frozen"
+                continue
+            flat = _build_flat_resolver(i, nodes_tuple, makers, container, frozen)
             if flat is None:
                 continue
             kind, fn = flat
@@ -873,6 +925,8 @@ class ExecutionPlan:
             nodes=nodes_tuple,
             resolvers=resolvers,
             resolver_kinds=resolver_kinds,
+            _frozen=frozen or {},
+            frozen=frozen is not None,
         )
 
     def _singleton_snapshot(self) -> Dict[str, Any]:
@@ -881,6 +935,8 @@ class ExecutionPlan:
         if container is None:
             return dict(self.singletons)
         snapshot: Dict[str, Any] = {_key_repr(k): v for k, v in container.single.items()}
+        if self.frozen:
+            snapshot.update({_key_repr(k): v for k, v in self._frozen.items()})
         for repr_key, meta in self.rules.items():
             if meta.get("lifetime") != "singleton":
                 continue
@@ -913,6 +969,7 @@ class ExecutionPlan:
                 rk: _value_to_serializable(v) for rk, v in self._singleton_snapshot().items()
             },
             "policy": self.compile_policy,
+            "frozen": self.frozen,
         }
         return json.dumps(payload, sort_keys=True, indent=2)
 
@@ -958,6 +1015,12 @@ class ExecutionPlan:
                 )
             )
 
+        frozen = bool(payload.get("frozen", False))
+        frozen_map: Dict[Key, Any] = {}
+        if frozen:
+            for rk, v in payload.get("singletons", {}).items():
+                if rk in keys:
+                    frozen_map[keys[rk]] = _value_from_serializable(v)
         return cls(
             container=None,
             order=order,
@@ -968,6 +1031,8 @@ class ExecutionPlan:
             compile_policy=payload.get("policy", "allow_override"),
             node_index=key_to_idx,
             nodes=tuple(nodes),
+            _frozen=frozen_map,
+            frozen=frozen,
         )
 
 

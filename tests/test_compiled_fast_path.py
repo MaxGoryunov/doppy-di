@@ -124,11 +124,20 @@ def test_plan_shared_singleton_across_transients() -> None:
 
 def test_plan_allow_override_visible() -> None:
     container = _build_benchmark_container()
-    plan = container.compile()
+    plan = container.compile(allow_post_compile_overrides=True)
 
     fake = ApiClient(Settings())
     with container.override(ApiClient, fake):
         assert plan.get(ApiClient) is fake
+    assert plan.get(ApiClient) is not fake
+
+
+def test_plan_frozen_blocks_post_compile_override() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+    fake = ApiClient(Settings())
+    with pytest.raises(RuntimeError), container.override(ApiClient, fake):
+        pass
     assert plan.get(ApiClient) is not fake
 
 
@@ -559,7 +568,7 @@ def test_plan_closure_used_on_hot_path() -> None:
 def test_plan_closure_bypassed_when_override_active() -> None:
     calls: List[Any] = []
     container = _build_benchmark_container()
-    plan = container.compile()
+    plan = container.compile(allow_post_compile_overrides=True)
     original = plan.resolvers[RegisterUser]
 
     def spy() -> Any:
@@ -1107,11 +1116,70 @@ def test_plan_deserialize_skips_unknown_order_entries() -> None:
 
 def test_plan_fast_walk_singleton_cache_hit_under_override() -> None:
     container = _build_benchmark_container()
-    plan = container.compile()
+    plan = container.compile(allow_post_compile_overrides=True)
     assert plan.get(RegisterUser) is not None
     with container.override(Settings, Settings()):
         obj = plan.get(RegisterUser)
     assert isinstance(obj, RegisterUser)
+
+
+def test_plan_frozen_override_raises_after_compile() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+    assert plan.get(RegisterUser) is not None
+    with pytest.raises(RuntimeError), container.override(Settings, Settings()):
+        pass
+
+
+def test_plan_frozen_prefetches_singletons() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+    assert set(plan._frozen) == {Settings, ApiClient}
+    assert isinstance(plan._frozen[Settings], Settings)
+    assert isinstance(plan._frozen[ApiClient], ApiClient)
+    assert plan._frozen[ApiClient].settings is plan._frozen[Settings]
+
+
+def test_plan_frozen_lockless_resolver_kind() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+    assert plan.resolver_kinds[RegisterUser] == "flat"
+    assert plan.resolver_kinds[ApiClient] == "frozen"
+    assert plan.resolver_kinds[Settings] == "frozen"
+
+
+def test_plan_frozen_constant_inlined() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 42)
+    builder.service("root", lambda v: v + 1, deps=["v"])
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    assert plan.resolver_kinds["v"] == "frozen"
+    assert plan.get("root") == 43
+
+
+def test_plan_frozen_compile_with_active_override_raises() -> None:
+    container = _build_benchmark_container()
+    with container.override(ApiClient, ApiClient(Settings())), pytest.raises(RuntimeError):
+        container.compile(allow_post_compile_overrides=False)
+
+
+def test_plan_frozen_serialize_roundtrip() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+    restored = ExecutionPlan.deserialize(plan.serialize())
+    assert set(restored._frozen) == {Settings, ApiClient}
+    assert restored.frozen is True
+    assert restored.get(ApiClient) is not None
+
+
+def test_plan_frozen_constant_override_ignored() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    container = builder.build()
+    plan = container.compile(allow_post_compile_overrides=False)
+    with pytest.raises(RuntimeError), container.override("v", 2):
+        pass
+    assert plan.get("v") == 1
 
 
 def test_plan_fast_walk_nested_alias_direct() -> None:
