@@ -188,6 +188,7 @@ def _wrap_singleton(
 _PreludeFetch = Callable[[], Tuple[Any, ...]]
 _ArgExpr = Callable[[Tuple[Any, ...]], Any]
 _FlatSlot = Tuple[str, Any]
+_NoArgExpr = Callable[[], Any]
 
 _MAX_FLAT_NODES = 64
 _MAX_FLAT_DEPTH = 32
@@ -248,13 +249,7 @@ def _emit_literal_root(
     pre: _PreludeFetch,
     slots: Tuple[_FlatSlot, ...],
 ) -> Callable[[], Any]:
-    """Build a root closure with zero intermediate DI frames.
-
-    Each slot is ``("p", j)`` — pass prelude item ``j`` straight through —
-    or ``("l1", (mk, j))`` — call a one-dependency factory directly over
-    prelude item ``j``. Transient constructor calls appear literally in the
-    root body, mirroring hand-written wiring.
-    """
+    """Build a root closure with zero intermediate DI frames."""
     if len(slots) == 1:
         kind0, payload0 = slots[0]
         if kind0 == "p":
@@ -500,18 +495,11 @@ def _build_flat_resolver(
     container: Container,
     frozen: Optional[Dict[Key, Any]] = None,
 ) -> Optional[Tuple[str, Callable[[], Any]]]:
-    """Try to build a flattened resolver for ``nodes[root_idx]``.
-
-    Returns ``(kind, resolver)`` where kind is ``"flat"`` (zero intermediate
-    DI frames: prelude CSE plus literal factory calls) or ``"generic"``
-    (prelude CSE plus per-node expression closures), or ``None`` when the
-    subtree is ineligible and the composed resolver must be kept.
-    """
+    """Try to build a flattened resolver for ``nodes[root_idx]``."""
     root = nodes[root_idx]
     if not _flat_node_eligible(root):
         return None
 
-    # Collect the dependency subtree iteratively.
     seen: set[int] = set()
     order: List[int] = []
     stack: List[Tuple[int, int]] = [(root_idx, 0)]
@@ -529,7 +517,6 @@ def _build_flat_resolver(
         for dep in spec.deps_idx:
             stack.append((dep, depth + 1))
 
-    # Prelude: subtree singletons in topo order, each with a ready wrapper.
     prelude_idx = sorted(i for i in order if nodes[i].lifetime == "singleton")
     for i in prelude_idx:
         if makers[i] is None:
@@ -588,6 +575,170 @@ def _build_flat_resolver(
     return kind, inner
 
 
+# --- Issue #43: exec-free frozen fast path ------------------------------------
+
+
+def _frozen_node_eligible(spec: _NodeSpec) -> bool:
+    """Return True when ``spec`` may run in a lockless frozen resolver."""
+    return (
+        spec.make is not None
+        and not spec.yield_provider
+        and not spec.async_yield_provider
+        and not spec.is_async
+        and not spec.nested
+        and spec.lifetime in ("transient", "singleton")
+    )
+
+
+def _emit_const(value: Any) -> _NoArgExpr:
+    """Capture an immutable frozen singleton as a no-arg callable."""
+
+    def _const(_v: Any = value) -> Any:
+        return _v
+
+    return _const
+
+
+def _emit_make(
+    make: Callable[..., Any],
+    dep_exprs: Tuple[_NoArgExpr, ...],
+) -> _NoArgExpr:
+    """No-arg arity-specialized closure calling ``make`` over dep exprs."""
+    k = len(dep_exprs)
+    if k == 0:
+
+        def _m0(_f: Callable[..., Any] = make) -> Any:
+            return _f()
+
+        return _m0
+    if k == 1:
+        d0 = dep_exprs[0]
+
+        def _m1(_f: Callable[..., Any] = make, _d0: _NoArgExpr = d0) -> Any:
+            return _f(_d0())
+
+        return _m1
+    if k == 2:
+        d0, d1 = dep_exprs
+
+        def _m2(
+            _f: Callable[..., Any] = make,
+            _d0: _NoArgExpr = d0,
+            _d1: _NoArgExpr = d1,
+        ) -> Any:
+            return _f(_d0(), _d1())
+
+        return _m2
+    if k == 3:
+        d0, d1, d2 = dep_exprs
+
+        def _m3(
+            _f: Callable[..., Any] = make,
+            _d0: _NoArgExpr = d0,
+            _d1: _NoArgExpr = d1,
+            _d2: _NoArgExpr = d2,
+        ) -> Any:
+            return _f(_d0(), _d1(), _d2())
+
+        return _m3
+    deps = dep_exprs
+
+    def _mn(_f: Callable[..., Any] = make, _d: Tuple[_NoArgExpr, ...] = deps) -> Any:
+        return _f(*[x() for x in _d])
+
+    return _mn
+
+
+def _build_frozen_resolver(
+    root_idx: int,
+    nodes: Tuple[_NodeSpec, ...],
+    frozen: Dict[Key, Any],
+) -> Optional[Tuple[str, Callable[[], Any]]]:
+    """Build a lockless frozen resolver for an eligible subtree.
+
+    Captures frozen singleton constants directly in closure cells (no
+    prelude, no singleton dict lookup, no lock, no override/scope checks).
+    Inlines eligible transient sub-graphs. Returns ``None`` when the
+    subtree is ineligible or contains shared transients (which require a
+    single-evaluation slot).
+    """
+    root = nodes[root_idx]
+    if not _frozen_node_eligible(root):
+        return None
+
+    seen: set[int] = set()
+    order: List[int] = []
+    stack: List[Tuple[int, int]] = [(root_idx, 0)]
+    while stack:
+        idx, depth = stack.pop()
+        if idx in seen:
+            continue
+        if depth > _MAX_FLAT_DEPTH or len(order) >= _MAX_FLAT_NODES:
+            return None
+        spec = nodes[idx]
+        if not _frozen_node_eligible(spec):
+            return None
+        seen.add(idx)
+        order.append(idx)
+        for dep in spec.deps_idx:
+            stack.append((dep, depth + 1))
+
+    parents: Dict[int, int] = dict.fromkeys(order, 0)
+    for i in order:
+        for d in nodes[i].deps_idx:
+            if d in parents:
+                parents[d] += 1
+    for i in order:
+        if nodes[i].lifetime == "transient" and parents[i] > 1:
+            return None
+
+    exprs: Dict[int, _NoArgExpr] = {}
+
+    def expr_for(idx: int) -> _NoArgExpr:
+        if idx in exprs:
+            return exprs[idx]
+        spec = nodes[idx]
+        if spec.lifetime == "singleton":
+            e = _emit_const(frozen.get(spec.key, _MISSING))
+        else:
+            e = _emit_make(
+                cast(Callable[..., Any], spec.make),
+                tuple(expr_for(d) for d in spec.deps_idx),
+            )
+        exprs[idx] = e
+        return e
+
+    root_expr = expr_for(root_idx)
+    if root.lifetime == "singleton":
+        return "frozen", root_expr
+    return "flat", root_expr
+
+
+@dataclass(frozen=True, slots=True)
+class BoundResolver:
+    """A resolver bound to a single root key.
+
+    Avoids repeated root-key dictionary lookup in :meth:`ExecutionPlan.get`.
+    The resolver caches the chosen execution mode at bind time and exposes
+    it through :attr:`kind`.
+
+    Bound resolvers are invalidated when the plan or container changes
+    (overrides, tracing, scopes, container close). Re-bind to refresh.
+    """
+
+    plan: "ExecutionPlan"
+    key: Key
+    qualifier: Optional[str]
+
+    def __call__(self) -> Any:
+        return self.plan.get(self.key, self.qualifier)
+
+    @property
+    def kind(self) -> str:
+        lookup = (self.key, self.qualifier) if self.qualifier is not None else self.key
+        return self.plan.resolver_kinds.get(lookup, "fallback")
+
+
 @dataclass(frozen=True, slots=True)
 class ExecutionPlan:
     """Immutable, pre-compiled execution plan for a container.
@@ -615,18 +766,24 @@ class ExecutionPlan:
     _frozen: Dict[Key, Any] = field(default_factory=dict)
     frozen: bool = False
 
-    def _resolve_fast(self, lookup: Key) -> Any:
-        """Resolve ``lookup`` using the precomputed node graph.
+    def bind(self, key: Key, qualifier: Optional[str] = None) -> BoundResolver:
+        """Return a bound resolver for ``key`` without repeated root lookup.
 
-        Walks nodes in topological order up to and including the requested
-        key. Singletons are read from / written to the live container cache so
-        overrides and cross-plan identity are preserved. Transients are built
-        fresh on every call. No reflection, no locks on the warm path, no
-        ``ResolveContext`` allocation.
-
-        When the plan is frozen, singletons are pre-resolved constants read
-        from ``_frozen`` with no lock and no override check.
+        The returned callable validates the key at bind time and preserves
+        the same semantics as :meth:`get`. It exposes the selected
+        execution mode through :attr:`BoundResolver.kind`.
         """
+        lookup = (key, qualifier) if qualifier is not None else key
+        known = lookup in self.node_index or lookup in self.resolver_kinds
+        if self.nodes and not known:
+            if self.container is not None and not self.container.has(key, qualifier):
+                raise ServiceNotFoundError(key)
+        elif self.container is None and not known and _key_repr(lookup) not in self.singletons:
+            raise ServiceNotFoundError(key)
+        return BoundResolver(plan=self, key=key, qualifier=qualifier)
+
+    def _resolve_fast(self, lookup: Key) -> Any:
+        """Resolve ``lookup`` using the precomputed node graph."""
         container = self.container
         idx = self.node_index.get(lookup)
         if idx is None:
@@ -712,12 +869,7 @@ class ExecutionPlan:
         return resolved[idx]
 
     def get(self, key: Key, qualifier: Optional[str] = None) -> Any:
-        """Resolve ``key`` using the precomputed order.
-
-        Semantics match ``container.get(key)``: singletons share the container
-        cache, scopes are honoured, overrides are applied. When the plan is
-        frozen, overrides are disallowed and singletons are pre-resolved.
-        """
+        """Resolve ``key`` using the precomputed order."""
         lookup = (key, qualifier) if qualifier is not None else key
         if self.nodes:
             container = self.container
@@ -738,11 +890,7 @@ class ExecutionPlan:
         raise ServiceNotFoundError(lookup)
 
     def aget(self, key: Key, qualifier: Optional[str] = None) -> Any:
-        """Async resolution using the precomputed order.
-
-        Note: ``ExecutionPlan`` does not track async yield-provider resources,
-        so this delegates to ``container.aget`` directly for async keys.
-        """
+        """Async resolution using the precomputed order."""
         lookup = (key, qualifier) if qualifier is not None else key
         container = self.container
         if container is None:
@@ -756,20 +904,7 @@ class ExecutionPlan:
         copy_parent_rules: bool = True,
         allow_post_compile_overrides: bool = True,
     ) -> "ExecutionPlan":
-        """Build an :class:`ExecutionPlan` from a container.
-
-        Performs full static validation (missing dependencies, cycles) and
-        captures a topological ordering from a snapshot of the rule set.
-        Raises :class:`MissingDependencyError` for unregistered dependencies
-        and :class:`DependencyCycleError` for cycles.
-
-        When ``allow_post_compile_overrides`` is False, the plan freezes the
-        graph at compile time: singletons are pre-resolved into
-        ``_frozen`` and the plan uses lockless resolvers. Any later
-        ``override(...)`` on the container raises ``RuntimeError``. This is
-        a breaking behavioral change for callers relying on override
-        visibility through a compiled plan.
-        """
+        """Build an :class:`ExecutionPlan` from a container."""
         if not allow_post_compile_overrides and container._override_layers:
             raise RuntimeError(
                 "Cannot compile with allow_post_compile_overrides=False "
@@ -841,7 +976,6 @@ class ExecutionPlan:
             meta[repr_key] = _rule_meta(rules_map[key])
             keys[repr_key] = key
 
-        # Build fast-path node specs keyed by object key.
         key_to_idx: Dict[Key, int] = {}
         for i, repr_key in enumerate(order):
             key_to_idx[keys[repr_key]] = i
@@ -875,10 +1009,6 @@ class ExecutionPlan:
                 deps = spec.deps_idx
                 args = [frozen[nodes[j].key] for j in deps]
                 frozen[spec.key] = spec.make(*args) if args else spec.make()
-            # Preserve cross-plan identity: frozen singletons must be visible
-            # through the live container cache so that
-            # ``plan.get(s) is container.get(s)`` holds. Frozen instances win
-            # over any pre-compile resolution.
             container.single.update(frozen)
             object.__setattr__(container, "_compiled_plan", None)
 
@@ -900,8 +1030,6 @@ class ExecutionPlan:
             makers[i] = maker
             resolvers[spec.key] = maker
 
-        # Issue #1: overwrite the same resolvers with flattened ones wherever
-        # the dependency subtree qualifies. Falls back silently otherwise.
         nodes_tuple = tuple(nodes)
         resolver_kinds: Dict[Key, str] = dict.fromkeys(resolvers, "composed")
         for i, spec in enumerate(nodes):
@@ -910,6 +1038,14 @@ class ExecutionPlan:
             if frozen is not None and spec.lifetime == "singleton":
                 resolver_kinds[spec.key] = "frozen"
                 continue
+            if frozen is not None:
+                fr = _build_frozen_resolver(i, nodes_tuple, frozen)
+
+                if fr is not None:
+                    kind, fn = fr
+                    resolvers[spec.key] = fn
+                    resolver_kinds[spec.key] = kind
+                    continue
             flat = _build_flat_resolver(i, nodes_tuple, makers, container, frozen)
             if flat is None:
                 continue
@@ -957,12 +1093,7 @@ class ExecutionPlan:
         return snapshot
 
     def serialize(self, format: str = "json") -> str:  # noqa: A002
-        """Serialize the plan to a string for caching or cross-process use.
-
-        Only the graph topology, rule metadata and resolved singletons are
-        persisted. Factory callables are not serialized (they must be
-        module-level for true cross-process reuse).
-        """
+        """Serialize the plan to a string for caching or cross-process use."""
         if format != "json":
             raise ValueError(f"Unsupported serialize format: {format!r}")
         payload = {

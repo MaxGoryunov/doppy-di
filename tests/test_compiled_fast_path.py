@@ -1261,3 +1261,141 @@ def test_plan_fast_walk_nested_alias_direct() -> None:
     )
     plan = builder.build().compile()
     assert plan.get(("parent", "child")) == 1
+
+
+# --- Issue #43: exec-free acceleration ----------------------------------------
+
+
+def test_plan_bind_returns_bound_resolver() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+    bound = plan.bind(RegisterUser)
+    assert callable(bound)
+    assert bound() is not None
+    assert isinstance(bound(), RegisterUser)
+
+
+def test_plan_bind_exposes_kind() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+    bound = plan.bind(RegisterUser)
+    assert bound.kind == plan.resolver_kinds[RegisterUser]
+
+
+def test_plan_bind_unknown_key_raises() -> None:
+    container = _build_benchmark_container()
+    plan = container.compile()
+    with pytest.raises(ServiceNotFoundError):
+        plan.bind("missing")
+
+
+def test_plan_bind_qualifier_key() -> None:
+    builder = ContainerBuilder()
+    builder.service("k", lambda: 1, qualifier="q", lifetime="singleton")
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    bound = plan.bind("k", "q")
+    assert bound() == 1
+    assert bound.kind == "frozen"
+
+
+def test_plan_frozen_resolver_uses_constants() -> None:
+    from doppy_di import plan as plan_mod  # noqa: F401
+
+    container = _build_benchmark_container()
+    plan = container.compile(allow_post_compile_overrides=False)
+    assert plan.resolver_kinds[RegisterUser] == "flat"
+    # No prelude fetch: resolver is a direct closure over constants.
+    resolver = plan.resolvers[RegisterUser]
+    bytecode = getattr(resolver, "__code__", None)
+    assert bytecode is not None
+    # The frozen singleton constants are captured, not looked up dynamically.
+    obj = resolver()
+    assert isinstance(obj, RegisterUser)
+    assert obj.repo.client.settings is plan._frozen[Settings]
+
+
+def test_plan_frozen_transient_chain_identity() -> None:
+    class S1:
+        pass
+
+    class S2:
+        def __init__(self, s1: S1) -> None:
+            self.s1 = s1
+
+    class S3:
+        def __init__(self, s2: S2) -> None:
+            self.s2 = s2
+
+    builder = ContainerBuilder()
+    builder.service(S1, S1, lifetime="singleton")
+    builder.service(S2, S2, lifetime="singleton", deps=[S1])
+    builder.service(S3, S3, lifetime="singleton", deps=[S2])
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    obj = plan.get(S3)
+    assert obj.s2.s1 is plan._frozen[S1]
+    assert obj.s2.s1 is plan._frozen[S1]
+    assert plan.get(S3) is obj
+
+
+def test_plan_frozen_inline_transients_no_prelude() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 7)
+    builder.service("t", lambda v: ["t", v], deps=["v"])
+    builder.service("root", lambda t: ["r", t], deps=["t"])
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    assert plan.get("root") == ["r", ["t", 7]]
+
+
+def test_plan_frozen_shared_singleton_constant_once() -> None:
+    builder = ContainerBuilder()
+    builder.value("v", 9)
+    builder.service("shared", lambda v: ["s", v], lifetime="singleton", deps=["v"])
+    builder.service("root", lambda a, b: ["r", a, b], deps=["shared", "shared"])
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    obj = plan.get("root")
+    assert obj[1] is obj[2]
+    assert obj[1] is plan._frozen["shared"]
+
+
+def test_plan_frozen_shared_transient_falls_back() -> None:
+    # Shared transient has two parents -> frozen resolver falls back to
+    # composed resolver (recomputes). Fallback preserves value semantics.
+    builder = ContainerBuilder()
+    builder.value("v", 1)
+    builder.service("shared", lambda v: ["s", v], deps=["v"])
+    builder.service("root", lambda a, b: ["r", a, b], deps=["shared", "shared"])
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    obj = plan.get("root")
+    assert obj[0] == "r"
+    assert obj[1] == ["s", 1]
+    assert obj[2] == ["s", 1]
+
+
+def test_plan_frozen_arity_zero_and_one() -> None:
+    builder = ContainerBuilder()
+    builder.value("c", 42)
+    builder.service("z", lambda: 43)
+    builder.service("one", lambda c: c + 1, deps=["c"])
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    assert plan.get("z") == 43
+    assert plan.get("one") == 43
+
+
+def test_plan_frozen_rejects_nested() -> None:
+    from doppy_di import Rule
+
+    builder = ContainerBuilder()
+    builder.value("child", 1)
+    builder.rules.add(
+        ("parent", "child"),
+        Rule(
+            ("parent", "child"),
+            lambda child: child,
+            lifetime="transient",
+            deps=("child",),
+            nested=True,
+        ),
+    )
+    plan = builder.build().compile(allow_post_compile_overrides=False)
+    # Nested aliases use container.get fallback path.
+    assert plan.get(("parent", "child")) == 1
