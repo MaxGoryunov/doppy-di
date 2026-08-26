@@ -1,6 +1,6 @@
 """Compile/plan mode: pre-computed dependency graph execution.
 
-``Container.compile()`` builds an :class:`ExecutionPlan` that captures a
+``Container.compile()`` builds an :class:`LegacyExecutionPlan` that captures a
 topological ordering of the registered rules. The plan is immutable and can be
 replayed many times without re-walking the graph on every ``get``.
 
@@ -167,24 +167,17 @@ def _wrap_singleton(
     """
     single = container.single
     lock = container.lock
-    cell = [_MISSING]
 
     def _maker() -> Any:
-        value = cell[0]
-        if value is not _MISSING:
-            return value
         cached = single.get(key, _MISSING)
         if cached is not _MISSING:
-            cell[0] = cached
             return cached
         value = inner()
         with lock:
             existing = single.get(key, _MISSING)
             if existing is not _MISSING:
-                value = existing
-            else:
-                single[key] = value
-        cell[0] = value
+                return existing
+            single[key] = value
         return value
 
     return _maker
@@ -392,132 +385,6 @@ def _emit_literal_root(
     return _lit_lll
 
 
-_Leaf2Slot = Tuple[str, Any]  # ("p", idx) | ("l2", (make, i0, i1))
-
-
-def _emit_literal2_root(
-    make_r: Callable[..., Any],
-    pre: _PreludeFetch,
-    slots: Tuple[_Leaf2Slot, ...],
-) -> Callable[[], Any]:
-    """Root closure with 2-value leaf children inlined in a single frame.
-
-    Covers the common shape of a transient root whose transient children each
-    pull two values from the singleton prelude. Single frame, zero nested DI
-    closures on the hot path.
-    """
-    if len(slots) == 2:
-        kind0, payload0 = slots[0]
-        kind1, payload1 = slots[1]
-        if kind0 == "p":
-            d0 = cast(int, payload0)
-            if kind1 == "p":
-                d1 = cast(int, payload1)
-
-                def _a_pp() -> Any:
-                    p = pre()
-                    return make_r(p[d0], p[d1])
-
-                return _a_pp
-            mk1, e1, f1 = cast(Tuple[Callable[..., Any], int, int], payload1)
-
-            def _a_pl() -> Any:
-                p = pre()
-                return make_r(p[d0], mk1(p[e1], p[f1]))
-
-            return _a_pl
-        mk0, e0, f0 = cast(Tuple[Callable[..., Any], int, int], payload0)
-        if kind1 == "p":
-            d1 = cast(int, payload1)
-
-            def _a_lp() -> Any:
-                p = pre()
-                return make_r(mk0(p[e0], p[f0]), p[d1])
-
-            return _a_lp
-        mk1, e1, f1 = cast(Tuple[Callable[..., Any], int, int], payload1)
-
-        def _a_ll() -> Any:
-            p = pre()
-            return make_r(mk0(p[e0], p[f0]), mk1(p[e1], p[f1]))
-
-        return _a_ll
-
-    kind0, payload0 = slots[0]
-    kind1, payload1 = slots[1]
-    kind2, payload2 = slots[2]
-    if kind0 == "p":
-        d0 = cast(int, payload0)
-        if kind1 == "p":
-            d1 = cast(int, payload1)
-            if kind2 == "p":
-                d2 = cast(int, payload2)
-
-                def _a_ppp() -> Any:
-                    p = pre()
-                    return make_r(p[d0], p[d1], p[d2])
-
-                return _a_ppp
-            mk2, e2, f2 = cast(Tuple[Callable[..., Any], int, int], payload2)
-
-            def _a_ppl() -> Any:
-                p = pre()
-                return make_r(p[d0], p[d1], mk2(p[e2], p[f2]))
-
-            return _a_ppl
-        if kind2 == "p":
-            d2 = cast(int, payload2)
-            mk1, e1, f1 = cast(Tuple[Callable[..., Any], int, int], payload1)
-
-            def _a_plp() -> Any:
-                p = pre()
-                return make_r(p[d0], mk1(p[e1], p[f1]), p[d2])
-
-            return _a_plp
-        mk1, e1, f1 = cast(Tuple[Callable[..., Any], int, int], payload1)
-        mk2, e2, f2 = cast(Tuple[Callable[..., Any], int, int], payload2)
-
-        def _a_pll() -> Any:
-            p = pre()
-            return make_r(p[d0], mk1(p[e1], p[f1]), mk2(p[e2], p[f2]))
-
-        return _a_pll
-    mk0, e0, f0 = cast(Tuple[Callable[..., Any], int, int], payload0)
-    if kind1 == "p":
-        d1 = cast(int, payload1)
-        if kind2 == "p":
-            d2 = cast(int, payload2)
-
-            def _a_lpp() -> Any:
-                p = pre()
-                return make_r(mk0(p[e0], p[f0]), p[d1], p[d2])
-
-            return _a_lpp
-        mk2, e2, f2 = cast(Tuple[Callable[..., Any], int, int], payload2)
-
-        def _a_lpl() -> Any:
-            p = pre()
-            return make_r(mk0(p[e0], p[f0]), p[d1], mk2(p[e2], p[f2]))
-
-        return _a_lpl
-    mk1, e1, f1 = cast(Tuple[Callable[..., Any], int, int], payload1)
-    if kind2 == "p":
-        d2 = cast(int, payload2)
-
-        def _a_llp() -> Any:
-            p = pre()
-            return make_r(mk0(p[e0], p[f0]), mk1(p[e1], p[f1]), p[d2])
-
-        return _a_llp
-    mk2, e2, f2 = cast(Tuple[Callable[..., Any], int, int], payload2)
-
-    def _a_lll() -> Any:
-        p = pre()
-        return make_r(mk0(p[e0], p[f0]), mk1(p[e1], p[f1]), mk2(p[e2], p[f2]))
-
-    return _a_lll
-
-
 def _emit_ref(j: int) -> _ArgExpr:
     """Build an argument expression reading prelude item ``j``."""
 
@@ -662,14 +529,10 @@ def _build_flat_resolver(
 
     make_r = cast(Callable[..., Any], root.make)
 
-    leaf_arities = {len(nodes[i].deps_idx) for i in transient_idx}
     if (
         leaf_only
         and 0 < len(root.deps_idx) <= 3
-        and (
-            (leaf_arities == set() or leaf_arities == {1})
-            or (leaf_arities == {2} and len(root.deps_idx) >= 2)
-        )
+        and all(len(nodes[i].deps_idx) == 1 for i in transient_idx)
     ):
         slots: List[_FlatSlot] = []
         for d in root.deps_idx:
@@ -677,32 +540,16 @@ def _build_flat_resolver(
                 slots.append(("p", prelude_pos[d]))
             else:
                 leaf = nodes[d]
-                leaf_deps = leaf.deps_idx
-                if len(leaf_deps) == 1:
-                    slots.append(
+                slots.append(
+                    (
+                        "l1",
                         (
-                            "l1",
-                            (
-                                cast(Callable[[Any], Any], leaf.make),
-                                prelude_pos[leaf_deps[0]],
-                            ),
-                        )
+                            cast(Callable[[Any], Any], leaf.make),
+                            prelude_pos[leaf.deps_idx[0]],
+                        ),
                     )
-                else:
-                    slots.append(
-                        (
-                            "l2",
-                            (
-                                cast(Callable[..., Any], leaf.make),
-                                prelude_pos[leaf_deps[0]],
-                                prelude_pos[leaf_deps[1]],
-                            ),
-                        )
-                    )
-        if leaf_arities == {2}:
-            inner = _emit_literal2_root(make_r, pre, tuple(slots))
-        else:
-            inner = _emit_literal_root(make_r, pre, tuple(slots))
+                )
+        inner = _emit_literal_root(make_r, pre, tuple(slots))
         kind = "flat"
     else:
         exprs: Dict[int, _ArgExpr] = {}
@@ -871,34 +718,19 @@ def _build_frozen_resolver(
 class BoundResolver:
     """A resolver bound to a single root key.
 
-    Avoids repeated root-key dictionary lookup in :meth:`ExecutionPlan.get`.
+    Avoids repeated root-key dictionary lookup in :meth:`LegacyExecutionPlan.get`.
     The resolver caches the chosen execution mode at bind time and exposes
     it through :attr:`kind`.
 
-    On the hot path ``__call__`` invokes the stored resolver callable
-    directly with zero dict lookups. A dynamic guard (overrides active,
-    tracer attached) is re-checked on each call for the mutable plan mode so
-    that override/tracer semantics stay identical to :meth:`ExecutionPlan.get`.
+    Bound resolvers are invalidated when the plan or container changes
+    (overrides, tracing, scopes, container close). Re-bind to refresh.
     """
 
-    plan: "ExecutionPlan"
+    plan: "LegacyExecutionPlan"
     key: Key
     qualifier: Optional[str]
-    _direct: Optional[Callable[[], Any]] = None
-    _needs_guard: bool = False
 
     def __call__(self) -> Any:
-        direct = self._direct
-        if direct is not None:
-            if not self._needs_guard:
-                return direct()
-            container = self.plan.container
-            if (
-                container is not None
-                and not container._override_layers
-                and container._tracer is None
-            ):
-                return direct()
         return self.plan.get(self.key, self.qualifier)
 
     @property
@@ -908,7 +740,7 @@ class BoundResolver:
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionPlan:
+class LegacyExecutionPlan:
     """Immutable, pre-compiled execution plan for a container.
 
     The plan holds a topological ordering of the registered rules plus the
@@ -948,25 +780,7 @@ class ExecutionPlan:
                 raise ServiceNotFoundError(key)
         elif self.container is None and not known and _key_repr(lookup) not in self.singletons:
             raise ServiceNotFoundError(key)
-        direct: Optional[Callable[[], Any]] = None
-        needs_guard = False
-        container = self.container
-        if (
-            self.nodes
-            and container is not None
-            and (self.frozen or (not container._override_layers and container._tracer is None))
-        ):
-            resolver = self.resolvers.get(lookup)
-            if resolver is not None:
-                direct = resolver
-                needs_guard = not self.frozen
-        return BoundResolver(
-            plan=self,
-            key=key,
-            qualifier=qualifier,
-            _direct=direct,
-            _needs_guard=needs_guard,
-        )
+        return BoundResolver(plan=self, key=key, qualifier=qualifier)
 
     def _resolve_fast(self, lookup: Key) -> Any:
         """Resolve ``lookup`` using the precomputed node graph."""
@@ -1059,15 +873,13 @@ class ExecutionPlan:
         lookup = (key, qualifier) if qualifier is not None else key
         if self.nodes:
             container = self.container
+            resolvers = self.resolvers
             if container is not None and (
                 self.frozen or (not container._override_layers and container._tracer is None)
             ):
-                resolvers = self.resolvers
-                try:
-                    resolver = resolvers[lookup]
-                except KeyError:
-                    return self._resolve_fast(lookup)
-                return resolver()
+                resolver = resolvers.get(lookup)
+                if resolver is not None:
+                    return resolver()
             return self._resolve_fast(lookup)
         container = self.container
         if container is not None:
@@ -1091,8 +903,8 @@ class ExecutionPlan:
         container: Container,
         copy_parent_rules: bool = True,
         allow_post_compile_overrides: bool = True,
-    ) -> "ExecutionPlan":
-        """Build an :class:`ExecutionPlan` from a container."""
+    ) -> "LegacyExecutionPlan":
+        """Build an :class:`LegacyExecutionPlan` from a container."""
         if not allow_post_compile_overrides and container._override_layers:
             raise RuntimeError(
                 "Cannot compile with allow_post_compile_overrides=False "
@@ -1298,8 +1110,8 @@ class ExecutionPlan:
         return json.dumps(payload, sort_keys=True, indent=2)
 
     @classmethod
-    def deserialize(cls, data: str) -> "ExecutionPlan":
-        """Rebuild an :class:`ExecutionPlan` from serialized data."""
+    def deserialize(cls, data: str) -> "LegacyExecutionPlan":
+        """Rebuild an :class:`LegacyExecutionPlan` from serialized data."""
         payload = json.loads(data)
         keys: Dict[str, Key] = {
             rk: cast(Key, _key_from_serializable(v)) for rk, v in payload["keys"].items()
