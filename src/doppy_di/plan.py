@@ -933,6 +933,7 @@ class ExecutionPlan:
     resolver_kinds: Dict[Key, str] = field(default_factory=dict)
     _frozen: Dict[Key, Any] = field(default_factory=dict)
     frozen: bool = False
+    guardless: bool = False
 
     def bind(self, key: Key, qualifier: Optional[str] = None) -> BoundResolver:
         """Return a bound resolver for ``key`` without repeated root lookup.
@@ -951,13 +952,14 @@ class ExecutionPlan:
         direct: Optional[Callable[[], Any]] = None
         needs_guard = False
         container = self.container
-        if (
-            self.nodes
-            and container is not None
-            and (self.frozen or (not container._override_layers and container._tracer is None))
-        ):
-            resolver = self.resolvers.get(lookup)
-            if resolver is not None:
+        resolver = self.resolvers.get(lookup)
+        if resolver is not None:
+            if self.guardless:
+                direct = resolver
+                needs_guard = False
+            elif container is not None and (
+                self.frozen or (not container._override_layers and container._tracer is None)
+            ):
                 direct = resolver
                 needs_guard = not self.frozen
         return BoundResolver(
@@ -1058,6 +1060,11 @@ class ExecutionPlan:
         """Resolve ``key`` using the precomputed order."""
         lookup = (key, qualifier) if qualifier is not None else key
         if self.nodes:
+            if self.guardless:
+                resolver = self.resolvers.get(lookup)
+                if resolver is not None:
+                    return resolver()
+                return self._resolve_fast(lookup)
             container = self.container
             if container is not None and (
                 self.frozen or (not container._override_layers and container._tracer is None)
@@ -1091,6 +1098,7 @@ class ExecutionPlan:
         container: Container,
         copy_parent_rules: bool = True,
         allow_post_compile_overrides: bool = True,
+        guardless: bool = False,
     ) -> "ExecutionPlan":
         """Build an :class:`ExecutionPlan` from a container."""
         if not allow_post_compile_overrides and container._override_layers:
@@ -1187,7 +1195,7 @@ class ExecutionPlan:
             )
 
         frozen: Optional[Dict[Key, Any]] = None
-        if not allow_post_compile_overrides:
+        if not allow_post_compile_overrides or guardless:
             frozen = {}
             for _i, spec in enumerate(nodes):
                 if spec.lifetime != "singleton":
@@ -1256,6 +1264,7 @@ class ExecutionPlan:
             resolver_kinds=resolver_kinds,
             _frozen=frozen or {},
             frozen=frozen is not None,
+            guardless=guardless,
         )
 
     def _singleton_snapshot(self) -> Dict[str, Any]:
