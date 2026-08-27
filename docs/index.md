@@ -42,5 +42,6 @@ assert container.get("answer") == 42
 ## Next steps
 
 - [Installation](installation.md) — pip / uv setup.
-- [Usage](usage.md) — full guide with examples.
+- [Usage](usage.md) — full design with examples.
+- [Speed comparison](speed.md) — benchmarks vs other DI containers.
 - [API](api.md) — reference documentation.

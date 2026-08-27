@@ -381,6 +381,16 @@ identical semantics. `ExecutionPlan.serialize()` / `deserialize()` persist
 the plan to JSON. Fully opt-in: if `compile()` is never called there is zero
 overhead.
 
+## Speed
+
+Resolution stays pure Python with no `compile`-based code generation via
+`exec` and no compiled extension. The compiled `ExecutionPlan` pre-builds
+resolver closures, so a resolve is a plain dict lookup plus a call. On the
+six-object register-user graph, the fastest path (`compile(guardless=True)`)
+resolves at sub-microsecond medians with two singletons and the full feature
+set enabled — hand-written code only a hair faster, and pacing `exec`-based
+DI containers. Full numbers on the [speed comparison](https://MaxGoryunov.github.io/doppy-di/) page.
+
 ### Observability and tracing
 
 Set a tracer callback to observe every resolution.
