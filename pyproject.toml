@@ -119,6 +119,7 @@ testpaths = ["tests"]
 [tool.coverage.run]
 branch = true
 source = ["src/doppy_di"]
+omit = ["src/doppy_di/_legacy.py"]
 
 [dependency-groups]
 doc = [
