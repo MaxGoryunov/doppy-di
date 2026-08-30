@@ -18,4 +18,5 @@ nav:
   - Home: index.md
   - Installation: installation.md
   - Usage: usage.md
+  - Speed comparison: speed.md
   - API: api.md

@@ -2367,6 +2367,7 @@ class Container:
         self,
         copy_parent_rules: bool = True,
         allow_post_compile_overrides: bool = True,
+        guardless: bool = False,
     ) -> "ExecutionPlan":
         """Compile the dependency graph into an immutable execution plan.
 
@@ -2410,6 +2411,7 @@ class Container:
             self,
             copy_parent_rules=copy_parent_rules,
             allow_post_compile_overrides=allow_post_compile_overrides,
+            guardless=guardless,
         )
         if self.config.compile_policy == CompilePolicy.STRICT or plan.frozen:
             object.__setattr__(self, "_compiled_plan", plan)

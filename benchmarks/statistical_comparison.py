@@ -127,6 +127,13 @@ def setup_doppy_di_frozen() -> Callable[[], RegisterUser]:
     return lambda: plan.get(RegisterUser)
 
 
+def setup_doppy_di_guardless() -> Callable[[], RegisterUser]:
+    container = _build_doppy_di()
+    plan = container.compile(guardless=True)
+    plan.get(RegisterUser)
+    return lambda: plan.get(RegisterUser)
+
+
 def bench_interleaved(
     cases: Sequence[tuple[str, Callable[[], object]]],
     *,
@@ -260,6 +267,7 @@ def main() -> None:
         ("injex", setup_injex()),
         ("doppy-di compiled", setup_doppy_di_compiled()),
         ("doppy-di frozen", setup_doppy_di_frozen()),
+        ("doppy-di guardless", setup_doppy_di_guardless()),
     ]
     samples = bench_interleaved(cases, iterations=iterations, rounds=rounds)
 
@@ -282,6 +290,11 @@ def main() -> None:
             "doppy-di frozen vs compiled",
             samples["doppy-di frozen"],
             samples["doppy-di compiled"],
+        ),
+        (
+            "guardless vs frozen",
+            samples["doppy-di guardless"],
+            samples["doppy-di frozen"],
         ),
         ("manual vs injex", samples["manual"], samples["injex"]),
     ]

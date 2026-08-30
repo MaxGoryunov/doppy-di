@@ -276,6 +276,14 @@ def setup_doppy_di_frozen() -> Callable[[], RegisterUser]:
     return lambda: plan.get(RegisterUser)
 
 
+def setup_doppy_di_guardless() -> Callable[[], RegisterUser]:
+    """doppy-di adapter: guardless fast path (issue #120)."""
+    container = _build_doppy_di()
+    plan = container.compile(guardless=True)
+    plan.get(RegisterUser)
+    return lambda: plan.get(RegisterUser)
+
+
 def bench(
     cases: list[tuple[str, Callable[[], object]]],
     *,
@@ -405,6 +413,7 @@ def main() -> None:
         ("doppy-di", setup_doppy_di()),
         ("doppy-di compiled", setup_doppy_di_compiled()),
         ("doppy-di frozen", setup_doppy_di_frozen()),
+        ("doppy-di guardless", setup_doppy_di_guardless()),
         ("wireup same scope", setup_wireup_same_scope()),
         ("wireup scope/op", setup_wireup_scope_per_op()),
         ("dishka", setup_dishka()),
@@ -448,6 +457,7 @@ def main() -> None:
         ("injex", setup_injex),
         ("doppy-di", setup_doppy_di),
         ("doppy-di compiled", setup_doppy_di_compiled),
+        ("doppy-di guardless", setup_doppy_di_guardless),
         ("wireup same scope", setup_wireup_same_scope),
         ("wireup scope/op", setup_wireup_scope_per_op),
         ("dishka", setup_dishka),
