@@ -21,12 +21,15 @@ Examples:
 
 from __future__ import annotations
 
+import inspect
 from typing import Any, Callable, Dict, List, Optional, Union
 
 from .container import Key, Rule, Scope
+from .inject import _BoundAssisted
 
 __all__ = [
     "Alias",
+    "Assisted",
     "AsyncConfiguration",  # noqa: F822 - lazily exposed via module __getattr__
     "Configuration",  # noqa: F822
     "ConfigurationError",  # noqa: F822
@@ -201,6 +204,65 @@ class Scoped(Provider):
         self.key = name
         deps = tuple(dep for dep in (_dep_key(d) for d in self.dependencies) if dep is not None)
         rules = [Rule(name, self.factory, "transient", deps, scope=self.scope)]
+        if isinstance(self.factory, type):
+            rules.append(Rule(self.factory, _identity, "transient", (name,)))
+        return rules
+
+
+class Assisted(Provider):
+    """Assisted factory provider.
+
+    The factory's annotated parameters resolve from the container; the
+    parameters declared with ``External()`` are supplied by the caller at
+    ``build(**kwargs)`` time. Registration is always transient because each
+    call may pass different external arguments; caching lifetimes would
+    silently return stale objects.
+
+    Examples:
+        >>> from doppy_di import Container
+        >>> from doppy_di.inject import External
+        >>> from doppy_di.providers import Assisted
+        >>> services = Container()
+        >>> def make(value, user_id: int = External()):
+        ...     return (value, user_id)
+        >>> services.handler = Assisted(make)
+        >>> services.get("handler").build(user_id=7)
+        ({'debug': False}, 7)
+    """
+
+    def __init__(
+        self,
+        factory: Callable[..., Any],
+        *dependencies: Union[Key, Provider],
+        lifetime: str = "transient",
+    ) -> None:
+        if lifetime != "transient":
+            raise ValueError(
+                "Assisted providers must be transient: per-build external "
+                f"arguments cannot be cached with lifetime={lifetime!r}"
+            )
+        self.factory = factory
+        self.dependencies = dependencies
+        from .inject import _build_plan
+
+        self._plan = _build_plan(factory)
+
+    def to_rules(self, name: str) -> List[Rule]:
+        from .inject import _annotation_key
+
+        self.key = name
+        _, annotations, injected, external, unannotated = self._plan
+        injected_order = [n for n in inspect.signature(self.factory).parameters if n in injected]
+        deps = tuple(dep for dep in (_dep_key(d) for d in self.dependencies) if dep is not None)
+        container_dep_keys = tuple(_annotation_key(annotations[n]) for n in injected_order)
+        injected_index = {n: i for i, n in enumerate(injected_order)}
+        external_names = set(external) | set(unannotated)
+
+        def make(*args: Any) -> Any:
+            resolved_deps = {dep_name: args[i] for dep_name, i in injected_index.items()}
+            return _BoundAssisted(self.factory, resolved_deps, external_names)
+
+        rules = [Rule(name, make, "transient", deps + container_dep_keys)]
         if isinstance(self.factory, type):
             rules.append(Rule(self.factory, _identity, "transient", (name,)))
         return rules
