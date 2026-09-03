@@ -548,6 +548,10 @@ dependencies = [
 aiogram = [
     { name = "aiogram" },
 ]
+config = [
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
 dev = [
     { name = "mypy" },
     { name = "nox" },
@@ -591,14 +595,16 @@ requires-dist = [
     { name = "nox", marker = "extra == 'dev'", specifier = ">=2025.5.1" },
     { name = "opentelemetry-api", marker = "extra == 'otel'", specifier = ">=1.20" },
     { name = "pre-commit", marker = "extra == 'dev'", specifier = ">=4.2" },
+    { name = "pydantic", marker = "extra == 'config'", specifier = ">=2.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.2" },
+    { name = "pyyaml", marker = "extra == 'config'", specifier = ">=6.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12" },
     { name = "typer", marker = "extra == 'typer'" },
     { name = "typing-extensions", specifier = ">=4.5" },
     { name = "uv", marker = "extra == 'dev'", specifier = ">=0.11" },
 ]
-provides-extras = ["aiogram", "dev", "docs", "fastapi", "otel", "typer"]
+provides-extras = ["aiogram", "config", "dev", "docs", "fastapi", "otel", "typer"]
 
 [package.metadata.requires-dev]
 doc = [
