@@ -18,7 +18,7 @@ repos:
           - fastapi
           - aiogram
           - typer
-        args: []
+        args: [--warn-unused-ignores]
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.8.3
     hooks:

@@ -397,11 +397,7 @@ def __getattr__(name: str) -> Any:
     the optional third-party config libraries.
     """
     if name in {"Configuration", "AsyncConfiguration", "ConfigurationError"}:
-        from .configuration import (  # type: ignore[no-redef]
-            AsyncConfiguration,
-            Configuration,
-            ConfigurationError,
-        )
+        from .configuration import AsyncConfiguration, Configuration, ConfigurationError
 
         _configuration_exports: Dict[str, Any] = {
             "Configuration": Configuration,
