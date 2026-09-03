@@ -66,7 +66,7 @@ from .devkit import (
     ValidationRunner,
 )
 from .graph import DependencyGraph
-from .inject import Depends, inject
+from .inject import Depends, External, MissingExternalArgumentError, assisted, inject
 from .plan import ExecutionPlan
 from .resolution import (
     ChildrenFirstPolicy as ResolutionChildrenFirstPolicy,
@@ -83,6 +83,7 @@ from .resolution import (
 )
 
 __all__ = [
+    "Assisted",
     "AsyncConfiguration",
     "AsyncDependencyInSyncContextError",
     "AsyncScope",
@@ -106,6 +107,7 @@ __all__ = [
     "DuplicateRegistrationError",
     "EagerPolicy",
     "ExecutionPlan",
+    "External",
     "Factory",
     "FactoryExecutionError",
     "InvalidFactoryError",
@@ -118,6 +120,7 @@ __all__ = [
     "LoggingContainer",
     "MissingAnnotationError",
     "MissingDependencyError",
+    "MissingExternalArgumentError",
     "NestedPolicy",
     "NestedRules",
     "OrderPolicy",
@@ -152,6 +155,7 @@ __all__ = [
     "ValidationRule",
     "ValidationRunner",
     "YieldNotCalledError",
+    "assisted",
     "inject",
     "injectable",
     "is_injectable",

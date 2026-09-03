@@ -56,6 +56,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("doppy_di.container")
 
 _RESOLUTION_PATH: ContextVar[Optional[List[Key]]] = ContextVar("path", default=None)
+_ACTIVE_REQUEST_RESOLVER: ContextVar[Optional[object]] = ContextVar(
+    "active_request_resolver", default=None
+)
 
 
 class KeyProtocol(Protocol):
@@ -1160,6 +1163,7 @@ class Scope:
         "_async_exit_stack",
         "_depth",
         "_exit_stack",
+        "_resolver_previous",
         "cache",
         "container",
         "name",
@@ -1173,6 +1177,7 @@ class Scope:
         self._exit_stack: List[Tuple[Key, ExitStack]] = []
         self._async_exit_stack: List[Tuple[Key, AsyncExitStack]] = []
         self._depth = 0
+        self._resolver_previous: Optional[object] = None
 
     def get(self, key: Key) -> Any:
         """Resolve key from scope cache or underlying container.
@@ -1210,6 +1215,9 @@ class Scope:
 
     def __enter__(self) -> Scope:
         self._depth += 1
+        _previous = _ACTIVE_REQUEST_RESOLVER.get()
+        _ACTIVE_REQUEST_RESOLVER.set(self)
+        self._resolver_previous = _previous
         return self
 
     def __exit__(
@@ -1218,6 +1226,7 @@ class Scope:
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
+        _ACTIVE_REQUEST_RESOLVER.set(self._resolver_previous)
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
@@ -1282,6 +1291,9 @@ class AsyncScope(Scope):
 
     async def __aenter__(self) -> AsyncScope:
         self._depth += 1
+        _previous = _ACTIVE_REQUEST_RESOLVER.get()
+        _ACTIVE_REQUEST_RESOLVER.set(self)
+        self._resolver_previous = _previous
         return self
 
     async def __aexit__(
@@ -1290,6 +1302,7 @@ class AsyncScope(Scope):
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
+        _ACTIVE_REQUEST_RESOLVER.set(self._resolver_previous)
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
