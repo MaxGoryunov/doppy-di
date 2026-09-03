@@ -27,6 +27,9 @@ from .container import Key, Rule, Scope
 
 __all__ = [
     "Alias",
+    "AsyncConfiguration",  # noqa: F822 - lazily exposed via module __getattr__
+    "Configuration",  # noqa: F822
+    "ConfigurationError",  # noqa: F822
     "Coroutine",
     "DictOf",
     "Factory",
@@ -86,6 +89,13 @@ class Provider:
     def to_rules(self, name: str) -> List[Rule]:
         """Return the rules this provider registers under ``name``."""
         raise NotImplementedError
+
+    def pre_validate_registration(self, ruleset: Any, name: str) -> None:
+        """Optional hook called on assignment before ``to_rules``.
+
+        Providers that reserve namespaced keys can raise here on collisions.
+        Default is a no-op for backward compatibility.
+        """
 
 
 class UnboundProvider(Provider):
@@ -378,3 +388,25 @@ class DictOf(Provider):
         )
         keys = list(self.providers.keys())
         return [Rule(name, lambda *args: dict(zip(keys, args)), "transient", deps)]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose the optional ``Configuration`` provider classes.
+
+    Imported on demand so that ``doppy_di.providers`` has no hard dependency on
+    the optional third-party config libraries.
+    """
+    if name in {"Configuration", "AsyncConfiguration", "ConfigurationError"}:
+        from .configuration import (  # type: ignore[no-redef]
+            AsyncConfiguration,
+            Configuration,
+            ConfigurationError,
+        )
+
+        _configuration_exports: Dict[str, Any] = {
+            "Configuration": Configuration,
+            "AsyncConfiguration": AsyncConfiguration,
+            "ConfigurationError": ConfigurationError,
+        }
+        return _configuration_exports[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

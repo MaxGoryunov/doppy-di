@@ -1428,6 +1428,9 @@ class Container:
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
+            pre_validate = getattr(value, "pre_validate_registration", None)
+            if pre_validate is not None:
+                pre_validate(self.config.ruleset, name)
             for rule in value.to_rules(name):
                 self.config.ruleset.add(rule.key, rule)
             self._providers[name] = value

@@ -6,6 +6,7 @@ from .auto_wiring import (
     injectable,
     is_injectable,
 )
+from .configuration import AsyncConfiguration, Configuration, ConfigurationError
 from .container import (
     AsyncDependencyInSyncContextError,
     AsyncScope,
@@ -82,11 +83,14 @@ from .resolution import (
 )
 
 __all__ = [
+    "AsyncConfiguration",
     "AsyncDependencyInSyncContextError",
     "AsyncScope",
     "ChildrenFirstPolicy",
     "CompilePolicy",
     "CompositeRuleSet",
+    "Configuration",
+    "ConfigurationError",
     "Container",
     "ContainerBuilder",
     "ContainerConfig",
