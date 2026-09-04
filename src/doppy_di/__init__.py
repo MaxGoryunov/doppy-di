@@ -6,6 +6,7 @@ from .auto_wiring import (
     injectable,
     is_injectable,
 )
+from .configuration import AsyncConfiguration, Configuration, ConfigurationError
 from .container import (
     AsyncDependencyInSyncContextError,
     AsyncScope,
@@ -14,6 +15,7 @@ from .container import (
     Container,
     ContainerBuilder,
     ContainerConfig,
+    ContextValueMissingError,
     CycleError,
     CyclicDependencyError,
     DependencyCycleError,
@@ -65,7 +67,7 @@ from .devkit import (
     ValidationRunner,
 )
 from .graph import DependencyGraph
-from .inject import Depends, inject
+from .inject import Depends, External, MissingExternalArgumentError, assisted, inject
 from .plan import ExecutionPlan
 from .resolution import (
     ChildrenFirstPolicy as ResolutionChildrenFirstPolicy,
@@ -82,14 +84,19 @@ from .resolution import (
 )
 
 __all__ = [
+    "Assisted",
+    "AsyncConfiguration",
     "AsyncDependencyInSyncContextError",
     "AsyncScope",
     "ChildrenFirstPolicy",
     "CompilePolicy",
     "CompositeRuleSet",
+    "Configuration",
+    "ConfigurationError",
     "Container",
     "ContainerBuilder",
     "ContainerConfig",
+    "ContextValueMissingError",
     "CycleError",
     "CyclicDependencyError",
     "DefaultResolutionPolicy",
@@ -102,6 +109,7 @@ __all__ = [
     "DuplicateRegistrationError",
     "EagerPolicy",
     "ExecutionPlan",
+    "External",
     "Factory",
     "FactoryExecutionError",
     "InvalidFactoryError",
@@ -114,6 +122,7 @@ __all__ = [
     "LoggingContainer",
     "MissingAnnotationError",
     "MissingDependencyError",
+    "MissingExternalArgumentError",
     "NestedPolicy",
     "NestedRules",
     "OrderPolicy",
@@ -148,6 +157,7 @@ __all__ = [
     "ValidationRule",
     "ValidationRunner",
     "YieldNotCalledError",
+    "assisted",
     "inject",
     "injectable",
     "is_injectable",

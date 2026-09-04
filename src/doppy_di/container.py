@@ -56,6 +56,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger("doppy_di.container")
 
 _RESOLUTION_PATH: ContextVar[Optional[List[Key]]] = ContextVar("path", default=None)
+_ACTIVE_REQUEST_RESOLVER: ContextVar[Optional[object]] = ContextVar(
+    "active_request_resolver", default=None
+)
 
 
 class KeyProtocol(Protocol):
@@ -465,6 +468,28 @@ class ScopeViolationError(Exception):
         self.scope = scope
         self.violation_type = violation_type
         super().__init__(f"Scope violation for {key!r} in {scope!r}: {violation_type}")
+
+
+class ContextValueMissingError(Exception):
+    """Raised when a ``from_context`` key is absent in the active scope.
+
+    Examples:
+        >>> from doppy_di import Container, Scope
+        >>> from doppy_di.providers import from_context
+        >>> services = Container()
+        >>> services.user = from_context("user")
+        >>> with services.scope("req") as s:
+        ...     try:
+        ...         s.get("user")
+        ...     except ContextValueMissingError as exc:
+        ...         str(exc)
+        "Context value 'user' missing in 'request' scope"
+    """
+
+    def __init__(self, key: Key, scope: str) -> None:
+        self.key = key
+        self.scope = scope
+        super().__init__(f"Context value {key!r} missing in {scope!r} scope")
 
 
 class FactoryExecutionError(Exception):
@@ -1160,9 +1185,12 @@ class Scope:
         "_async_exit_stack",
         "_depth",
         "_exit_stack",
+        "_resolver_previous",
         "cache",
         "container",
         "name",
+        "request_context",
+        "session_context",
     )
 
     def __init__(self, container: Container, name: str) -> None:
@@ -1170,9 +1198,63 @@ class Scope:
         self.container = container
         self.name = name
         self.cache: Dict[Key, Any] = {}
+        self.request_context: Dict[Key, Any] = {}
+        self.session_context: Dict[Key, Any] = {}
         self._exit_stack: List[Tuple[Key, ExitStack]] = []
         self._async_exit_stack: List[Tuple[Key, AsyncExitStack]] = []
         self._depth = 0
+        self._resolver_previous: Optional[object] = None
+
+    def set_context(
+        self,
+        key: Key,
+        value: Any,
+        scope: Optional[Union[str, "Scope"]] = None,
+    ) -> None:
+        """Store a context value available to ``from_context`` providers.
+
+        Request-scope values are cleared when the scope exits; session-scope
+        values persist for the scope lifetime.
+
+        Examples:
+            >>> from doppy_di import Container
+            >>> from doppy_di.providers import from_context
+            >>> services = Container()
+            >>> services.user = from_context("user")
+            >>> with services.scope("req") as s:
+            ...     s.set_context("user", "alice")
+            ...     s.get("user")
+            'alice'
+        """
+        from .providers import _scope_value
+
+        is_session = scope is not None and _scope_value(scope) == _scope_value(Scope.SESSION)
+        if is_session:
+            self.session_context[key] = value
+        else:
+            self.request_context[key] = value
+
+    def get_context(
+        self,
+        key: Key,
+        scope: Optional[Union[str, "Scope"]] = None,
+    ) -> Any:
+        """Read a context value stored via :meth:`set_context`.
+
+        Raises:
+            ContextValueMissingError: When the key is absent in the scope.
+        """
+        from .providers import _scope_value
+
+        is_session = scope is not None and _scope_value(scope) == _scope_value(Scope.SESSION)
+        store = self.session_context if is_session else self.request_context
+        try:
+            return store[key]
+        except KeyError:
+            raise ContextValueMissingError(
+                key,
+                _scope_value(scope) if scope is not None else _scope_value(Scope.REQUEST),
+            ) from None
 
     def get(self, key: Key) -> Any:
         """Resolve key from scope cache or underlying container.
@@ -1188,7 +1270,16 @@ class Scope:
         if key in self.cache:
             self.container._trace(key, 0.0, True, self.name)
             return self.cache[key]
-        rule = self.container.config.ruleset.find(key)
+        try:
+            rule = self.container.config.ruleset.find(key)
+        except ServiceNotFoundError:
+            from .providers import implicit_collection_rule
+
+            if implicit_collection_rule(key, self.container.config.ruleset) is None:
+                raise
+            obj = self.container.get(key, _scope_name=self.name)
+            self.cache[key] = obj
+            return obj
         if rule.yield_provider:
             started = self.container._tracer is not None
             start = time.perf_counter() if started else 0.0
@@ -1210,6 +1301,9 @@ class Scope:
 
     def __enter__(self) -> Scope:
         self._depth += 1
+        _previous = _ACTIVE_REQUEST_RESOLVER.get()
+        _ACTIVE_REQUEST_RESOLVER.set(self)
+        self._resolver_previous = _previous
         return self
 
     def __exit__(
@@ -1218,9 +1312,11 @@ class Scope:
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
+        _ACTIVE_REQUEST_RESOLVER.set(self._resolver_previous)
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
+            self.request_context.clear()
             errors: List[Tuple[Key, Exception]] = []
             for key, stack in self._exit_stack:
                 try:
@@ -1255,7 +1351,16 @@ class AsyncScope(Scope):
         if key in self.cache:
             self.container._trace(key, 0.0, True, self.name)
             return self.cache[key]
-        rule = self.container.config.ruleset.find(key)
+        try:
+            rule = self.container.config.ruleset.find(key)
+        except ServiceNotFoundError:
+            from .providers import implicit_collection_rule
+
+            if implicit_collection_rule(key, self.container.config.ruleset) is None:
+                raise
+            obj = await self.container.aget(key, _scope_name=self.name)
+            self.cache[key] = obj
+            return obj
         if rule.async_yield_provider:
             started = self.container._tracer is not None
             start = time.perf_counter() if started else 0.0
@@ -1282,6 +1387,9 @@ class AsyncScope(Scope):
 
     async def __aenter__(self) -> AsyncScope:
         self._depth += 1
+        _previous = _ACTIVE_REQUEST_RESOLVER.get()
+        _ACTIVE_REQUEST_RESOLVER.set(self)
+        self._resolver_previous = _previous
         return self
 
     async def __aexit__(
@@ -1290,9 +1398,11 @@ class AsyncScope(Scope):
         exc_val: Optional[BaseException],
         exc_tb: Optional[TracebackType],
     ) -> None:
+        _ACTIVE_REQUEST_RESOLVER.set(self._resolver_previous)
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
+            self.request_context.clear()
             errors: List[Tuple[Key, Exception]] = []
             for key, stack in self._async_exit_stack:
                 try:
@@ -1428,6 +1538,9 @@ class Container:
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
+            pre_validate = getattr(value, "pre_validate_registration", None)
+            if pre_validate is not None:
+                pre_validate(self.config.ruleset, name)
             for rule in value.to_rules(name):
                 self.config.ruleset.add(rule.key, rule)
             self._providers[name] = value
@@ -1551,7 +1664,12 @@ class Container:
                 try:
                     rule = self.config.ruleset.find(lookup)
                 except ServiceNotFoundError:
-                    if self._is_injectable_key(lookup):
+                    from .providers import implicit_collection_rule
+
+                    collection = implicit_collection_rule(lookup, self.config.ruleset)
+                    if collection is not None:
+                        rule = collection
+                    elif self._is_injectable_key(lookup):
                         from .auto_wiring import _rule_for
 
                         self.config.ruleset.add(lookup, _rule_for(lookup))
@@ -1719,7 +1837,12 @@ class Container:
             try:
                 rule = self.config.ruleset.find(lookup)
             except ServiceNotFoundError:
-                if self._is_injectable_key(lookup):
+                from .providers import implicit_collection_rule
+
+                collection = implicit_collection_rule(lookup, self.config.ruleset)
+                if collection is not None:
+                    rule = collection
+                elif self._is_injectable_key(lookup):
                     from .auto_wiring import _rule_for
 
                     self.config.ruleset.add(lookup, _rule_for(lookup))
