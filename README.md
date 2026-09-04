@@ -364,9 +364,9 @@ services.service = Singleton(UserService, repo=services.repo)
 ```
 
 Providers: `Factory`, `Singleton`, `Scoped`, `Value`, `Resource`,
-`Coroutine`, `Alias`, `Selector`, `ListOf`, `DictOf`. Assignment is
-attribute-style; dependencies may reference other providers before they are
-assigned.
+`Coroutine`, `Alias`, `Dependency`, `Selector`, `ListOf`, `DictOf`.
+Assignment is attribute-style; dependencies may reference other providers
+before they are assigned.
 
 ### Config profiles and child containers
 
@@ -400,6 +400,42 @@ resolves through the live container, so lifetimes, caches and scopes keep
 identical semantics. `ExecutionPlan.serialize()` / `deserialize()` persist
 the plan to JSON. Fully opt-in: if `compile()` is never called there is zero
 overhead.
+
+### Required dependencies and runtime selection
+
+`Dependency` marks a key as mandatory. It behaves like a strict alias: a
+missing key raises `ServiceNotFoundError` at resolution, and an unbound
+provider is rejected at registration instead of being silently dropped.
+
+```python
+from doppy_di.providers import Dependency, Value
+
+services.config = Value({"debug": True})
+services.required = Dependency("config")   # fails loudly if "config" missing
+```
+
+`Selector` picks one provider per resolution. Pass a `context` dependency (for
+example a scope-bound value from `from_context`) and read it via
+`ctx.context` to choose at runtime. Labels are decoupled from registration
+keys, and an unknown label raises a clear error.
+
+```python
+from doppy_di import Container, Scope
+from doppy_di.providers import Selector, from_context, Value
+
+services = Container()
+services.a = Value("feature_a")
+services.b = Value("feature_b")
+services.env = from_context("env", Scope.REQUEST)
+services.svc = Selector(
+    {"a": services.a, "b": services.b},
+    selector_fn=lambda ctx: "b" if ctx.context == "prod" else "a",
+    context=services.env,
+)
+with services.scope("req") as s:
+    s.set_context("env", "prod")
+    assert s.get("svc") == "feature_b"
+```
 
 ## Speed
 

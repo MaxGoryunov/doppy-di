@@ -44,6 +44,7 @@ __all__ = [
     "Configuration",  # noqa: F822
     "ConfigurationError",  # noqa: F822
     "Coroutine",
+    "Dependency",
     "DictOf",
     "Factory",
     "FromContext",
@@ -114,13 +115,22 @@ class SelectorContext:
         key: The registration name of the ``Selector`` itself.
         providers: Mapping of label to the resolved registration key of
             each candidate provider.
+        context: Optional runtime value supplied through ``Selector``'s
+            ``context`` argument (for example a scope-bound value resolved
+            with :func:`from_context`). ``None`` when no context was given.
     """
 
-    __slots__ = ("key", "providers")
+    __slots__ = ("context", "key", "providers")
 
-    def __init__(self, key: str, providers: Dict[str, Key]) -> None:
+    def __init__(
+        self,
+        key: str,
+        providers: Dict[str, Key],
+        context: Any = None,
+    ) -> None:
         self.key = key
         self.providers = providers
+        self.context = context
 
 
 class Provider:
@@ -499,9 +509,11 @@ class Selector(Provider):
         self,
         providers: Dict[str, Union[Key, Provider]],
         selector_fn: Callable[[SelectorContext], str],
+        context: Optional[Union[Key, Provider]] = None,
     ) -> None:
         self.providers = providers
         self.selector_fn = selector_fn
+        self.context = context
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
@@ -514,12 +526,69 @@ class Selector(Provider):
             deps.append(dep)
             labels.append(label)
 
+        providers_map = dict(zip(labels, deps))
+        has_context = self.context is not None
+        if has_context:
+            assert self.context is not None
+            context_dep = _member_key(self.context)
+            assert context_dep is not None
+            deps.append(context_dep)
+
         def make(*args: Any) -> Any:
-            ctx = SelectorContext(name, dict(zip(self.providers.keys(), deps)))
-            idx = labels.index(self.selector_fn(ctx))
+            ctx = SelectorContext(name, providers_map, args[-1] if has_context else None)
+            label = self.selector_fn(ctx)
+            try:
+                idx = labels.index(label)
+            except ValueError:
+                raise ValueError(
+                    f"Selector {name!r} returned unknown label {label!r}; expected one of {labels}"
+                ) from None
             return args[idx]
 
         return [Rule(name, make, "transient", tuple(deps))]
+
+
+class Dependency(Provider):
+    """Provider forcing a dependency to be present.
+
+    ``Dependency`` is a strict alias to another key. Unlike :class:`Alias`,
+    which silently drops unbound providers, ``Dependency`` rejects an
+    unbound provider at registration and surfaces a missing key with
+    :class:`~doppy_di.container.ServiceNotFoundError` at resolution time.
+    This pairs with pre-resolution validation (``build(validate=True)``,
+    the CLI ``check`` and ``EagerPolicy``), which all flag an absent target
+    before resolving the graph.
+
+    Examples:
+        >>> from doppy_di import Container
+        >>> from doppy_di.providers import Dependency, Value
+        >>> services = Container()
+        >>> services.config = Value({"debug": True})
+        >>> services.required = Dependency("config")
+        >>> services.get("required")
+        {'debug': True}
+
+    A missing target raises at resolution:
+
+        >>> services.strict = Dependency("absent")
+        >>> services.get("strict")
+        Traceback (most recent call last):
+        ...
+        ServiceNotFoundError
+    """
+
+    def __init__(self, target: Union[Key, Provider]) -> None:
+        self.target = target
+
+    def to_rules(self, name: str) -> List[Rule]:
+        self.key = name
+        target = _member_key(self.target)
+        if target is None:
+            raise ValueError(
+                f"Unbound provider {name!r} required by Dependency; "
+                "assign it first, e.g. services.x = provider"
+            )
+        return [Rule(name, _identity, "singleton", (target,))]
 
 
 class ListOf(Provider):

@@ -301,5 +301,5 @@ def test_selector_unknown_key_raises() -> None:
         selector_fn=lambda ctx: "missing",
     )
 
-    with pytest.raises(ValueError, match="not in list"):
+    with pytest.raises(ValueError, match="unknown label"):
         services.get("pick")
