@@ -1108,6 +1108,15 @@ class ExecutionPlan:
             )
         ruleset = container.config.ruleset
 
+        from .providers import implicit_collection_rule
+
+        for _key, rule in list(ruleset.map.items()):
+            for dep in rule.deps:
+                if dep not in ruleset.map:
+                    collection = implicit_collection_rule(dep, ruleset)
+                    if collection is not None:
+                        ruleset.add(dep, collection)
+
         errors: List[Tuple[Key, Key]] = []
         for key, rule in ruleset.map.items():
             for dep in rule.deps:

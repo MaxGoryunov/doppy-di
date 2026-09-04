@@ -1193,7 +1193,16 @@ class Scope:
         if key in self.cache:
             self.container._trace(key, 0.0, True, self.name)
             return self.cache[key]
-        rule = self.container.config.ruleset.find(key)
+        try:
+            rule = self.container.config.ruleset.find(key)
+        except ServiceNotFoundError:
+            from .providers import implicit_collection_rule
+
+            if implicit_collection_rule(key, self.container.config.ruleset) is None:
+                raise
+            obj = self.container.get(key, _scope_name=self.name)
+            self.cache[key] = obj
+            return obj
         if rule.yield_provider:
             started = self.container._tracer is not None
             start = time.perf_counter() if started else 0.0
@@ -1264,7 +1273,16 @@ class AsyncScope(Scope):
         if key in self.cache:
             self.container._trace(key, 0.0, True, self.name)
             return self.cache[key]
-        rule = self.container.config.ruleset.find(key)
+        try:
+            rule = self.container.config.ruleset.find(key)
+        except ServiceNotFoundError:
+            from .providers import implicit_collection_rule
+
+            if implicit_collection_rule(key, self.container.config.ruleset) is None:
+                raise
+            obj = await self.container.aget(key, _scope_name=self.name)
+            self.cache[key] = obj
+            return obj
         if rule.async_yield_provider:
             started = self.container._tracer is not None
             start = time.perf_counter() if started else 0.0
@@ -1567,7 +1585,12 @@ class Container:
                 try:
                     rule = self.config.ruleset.find(lookup)
                 except ServiceNotFoundError:
-                    if self._is_injectable_key(lookup):
+                    from .providers import implicit_collection_rule
+
+                    collection = implicit_collection_rule(lookup, self.config.ruleset)
+                    if collection is not None:
+                        rule = collection
+                    elif self._is_injectable_key(lookup):
                         from .auto_wiring import _rule_for
 
                         self.config.ruleset.add(lookup, _rule_for(lookup))
@@ -1735,7 +1758,12 @@ class Container:
             try:
                 rule = self.config.ruleset.find(lookup)
             except ServiceNotFoundError:
-                if self._is_injectable_key(lookup):
+                from .providers import implicit_collection_rule
+
+                collection = implicit_collection_rule(lookup, self.config.ruleset)
+                if collection is not None:
+                    rule = collection
+                elif self._is_injectable_key(lookup):
                     from .auto_wiring import _rule_for
 
                     self.config.ruleset.add(lookup, _rule_for(lookup))
