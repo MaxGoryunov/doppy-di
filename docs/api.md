@@ -198,6 +198,7 @@ resolve by name at rule registration.
 - `Resource` — yield-based resource finalized on scope exit.
 - `Coroutine` — async factory.
 - `Alias` — points at another key.
+- `Dependency` — mandatory key; raises on a missing target. Strict alias.
 - `Selector` — picks one provider at resolution time.
 - `ListOf` — aggregates providers into a list.
 - `DictOf` — aggregates named providers into a dict.
