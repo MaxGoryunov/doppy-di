@@ -33,6 +33,8 @@ class _ScopeMiddleware:
         data: dict[str, Any],
     ) -> Any:
         async with self.container.ascope(self.scope) as s:
+            s.set_context("event", event)
+            s.set_context("scope", s)
             data["doppy_scope"] = s
             return await handler(event, data)
 

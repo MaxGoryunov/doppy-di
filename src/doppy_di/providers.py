@@ -46,6 +46,7 @@ __all__ = [
     "Coroutine",
     "DictOf",
     "Factory",
+    "FromContext",
     "ListOf",
     "Provider",
     "Resource",
@@ -56,6 +57,7 @@ __all__ = [
     "Singleton",
     "UnboundProvider",
     "Value",
+    "from_context",
 ]
 
 
@@ -249,6 +251,76 @@ class Scoped(Provider):
         if isinstance(self.factory, type):
             rules.append(Rule(self.factory, _identity, "transient", (name,)))
         return rules
+
+
+class FromContext(Provider):
+    """Provider resolving a value bound to the active scope context.
+
+    The value must be placed with :meth:`Scope.set_context`, typically by
+    framework middleware. Request-scope values are cleared when the scope
+    exits; session-scope values persist for the scope lifetime.
+
+    The provider registers a real ``Rule`` (so static validation and the CLI
+    check pass) and resolves transiently, so per-request values never leak
+    into the singleton cache.
+
+    Examples:
+        >>> from doppy_di import Container, Scope
+        >>> from doppy_di.providers import from_context
+        >>> services = Container()
+        >>> services.user = from_context("user", Scope.REQUEST)
+        >>> with services.scope("req") as s:
+        ...     s.set_context("user", "alice")
+        ...     s.get("user")
+        'alice'
+    """
+
+    def __init__(
+        self,
+        key: Key,
+        scope: Union[str, Scope] = Scope.REQUEST,
+    ) -> None:
+        self.context_key = key
+        self.scope = _scope_value(scope)
+
+    def to_rules(self, name: str) -> List[Rule]:
+        self.key = name
+        ctx_key = self.context_key
+        ctx_scope = self.scope
+
+        def make() -> Any:
+            from .container import _ACTIVE_REQUEST_RESOLVER, ContextValueMissingError
+
+            resolver = _ACTIVE_REQUEST_RESOLVER.get()
+            if resolver is None or not isinstance(resolver, Scope):
+                raise ContextValueMissingError(ctx_key, ctx_scope)
+            return resolver.get_context(ctx_key, ctx_scope)
+
+        return [Rule(name, make, "transient")]
+
+
+def from_context(
+    key: Key,
+    scope: Union[str, Scope] = Scope.REQUEST,
+) -> FromContext:
+    """Declare a provider resolving a value from the active scope context.
+
+    Args:
+        key: Context key placed with :meth:`Scope.set_context`.
+        scope: Which context store to read (``Scope.REQUEST`` default or
+            ``Scope.SESSION``).
+
+    Examples:
+        >>> from doppy_di import Container
+        >>> from doppy_di.providers import from_context
+        >>> services = Container()
+        >>> services.user = from_context("user")
+        >>> with services.scope("req") as s:
+        ...     s.set_context("user", "alice")
+        ...     s.get("user")
+        'alice'
+    """
+    return FromContext(key, scope)
 
 
 class Assisted(Provider):

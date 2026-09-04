@@ -9,6 +9,7 @@ from typing import Any, Callable, cast
 
 import pytest
 
+from doppy_di import Container
 from doppy_di.container import ContainerBuilder
 
 _Middleware = Callable[..., Any]
@@ -197,3 +198,54 @@ def test_typer_real_app() -> None:
     setup_doppy(app, container)
 
     assert app.registered_commands == []
+
+
+def test_fastapi_middleware_exposes_request_via_context() -> None:
+    from doppy_di.ext.fastapi import setup_doppy
+    from doppy_di.providers import from_context
+
+    app = _FakeApp()
+    services = Container()
+    services.req = from_context("request")
+    container = services
+    setup_doppy(cast(Any, app), container)
+
+    middleware = app.middlewares[0]
+    request = SimpleNamespace(state=SimpleNamespace())
+    seen: list[Any] = []
+
+    async def call_next(_request: Any) -> str:
+        seen.append(await request.state.doppy_scope.get("req"))
+        return "ok"
+
+    result = asyncio.run(middleware(request, call_next))
+
+    assert result == "ok"
+    assert len(seen) == 1
+    assert seen[0] is request
+
+
+def test_aiogram_middleware_exposes_event_via_context() -> None:
+    from doppy_di.ext.aiogram import setup_doppy
+    from doppy_di.providers import from_context
+
+    bot = _FakeBot()
+    services = Container()
+    services.event = from_context("event")
+    container = services
+    setup_doppy(cast(Any, bot), container)
+
+    middleware = bot.session.middlewares[0]
+    data: dict[str, Any] = {}
+    event = object()
+    seen: list[Any] = []
+
+    async def handler(_event: Any, _d: dict[str, Any]) -> str:
+        seen.append(await data["doppy_scope"].get("event"))
+        return "ok"
+
+    result = asyncio.run(middleware(handler, event, data))
+
+    assert result == "ok"
+    assert len(seen) == 1
+    assert seen[0] is event
