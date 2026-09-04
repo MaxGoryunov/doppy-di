@@ -90,6 +90,33 @@ def External() -> Any:  # noqa: N802
     return _ExternalMarker()
 
 
+class _PassthroughMarker:
+    """Marker exempting a parameter from ``@inject`` resolution.
+
+    A parameter whose default is a ``Pass()`` marker is left untouched by
+    the injection wrapper. The framework (FastAPI ``Request``, gRPC ``call``,
+    a declaratively-injected object) supplies it at call time instead.
+    """
+
+    __slots__ = ()
+
+
+def Pass() -> Any:  # noqa: N802
+    """Exempt a framework-supplied parameter from injection.
+
+    Handlers wrapped by ``@inject`` normally resolve every annotated
+    parameter from the container. Some frameworks fill parameters themselves
+    (FastAPI ``Request``, gRPC ``ServerInterceptor`` call tuples). Mark those
+    with ``= Pass()`` so ``@inject`` neither resolves them nor raises
+    :class:`MissingAnnotationError`.
+
+    Examples:
+        >>> Pass()
+        <doppy_di.inject._PassthroughMarker object at ...>
+    """
+    return _PassthroughMarker()
+
+
 class MissingExternalArgumentError(TypeError):
     """Raised when a declared ``External()`` argument is not supplied."""
 
@@ -141,6 +168,8 @@ def _build_plan(func: Callable[..., Any]) -> _Plan:
         ):
             continue
         if name in ("self", "cls"):
+            continue
+        if isinstance(param.default, _PassthroughMarker):
             continue
         if isinstance(param.default, _ExternalMarker):
             external.add(name)
