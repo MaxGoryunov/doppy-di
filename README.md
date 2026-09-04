@@ -500,17 +500,24 @@ unused registrations (with `--root`), and lifetime violations.
 
 ### Framework integrations
 
-Optional first-party integrations for FastAPI, aiogram, and Typer live in `doppy_di.ext.*`.
+Optional first-party integrations for FastAPI, aiogram, Typer, and ten more frameworks live in `doppy_di.ext.*`. Every adapter exposes `setup_doppy(app, container, scope=...)` which opens a fresh scope per request/task/message and exposes the framework object through `from_context`. Framework libraries are imported lazily, so `doppy-di` installs without them; each framework is an optional extra (e.g. `pip install "doppy-di[flask]"`).
 
 ```python
 from doppy_di.ext.fastapi import setup_doppy
-setup_doppy(app, container)                 # per-request scope
+setup_doppy(app, container)                 # per-request scope (Starlette too)
 
 from doppy_di.ext.aiogram import setup_doppy
 setup_doppy(bot, container)                 # per-update scope
+```
 
-from doppy_di.ext.typer import setup_doppy
-setup_doppy(app, container)                 # inject into commands
+Web adapters (Flask, Django, Starlette, Aiohttp, Sanic, Litestar) create request scopes; task-or-message adapters (Celery, Taskiq, FastStream, gRPC) create a fresh scope per task/message. Handler parameters the framework fills itself can be exempted from injection with `Pass()` from `doppy_di.inject`:
+
+```python
+from doppy_di.inject import Pass, inject
+
+@inject(container=container)
+def handler(svc: MyService, request: Request = Pass()):  # Request left to FastAPI
+    return svc.handle(request)
 ```
 
 ### Modern typing support

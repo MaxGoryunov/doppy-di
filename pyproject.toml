@@ -65,6 +65,36 @@ config = [
     "PyYAML>=6.0",
     "pydantic>=2.0",
 ]
+flask = [
+    "flask",
+]
+django = [
+    "django",
+]
+starlette = [
+    "starlette",
+]
+aiohttp = [
+    "aiohttp",
+]
+sanic = [
+    "sanic",
+]
+litestar = [
+    "litestar",
+]
+celery = [
+    "celery",
+]
+grpc = [
+    "grpcio",
+]
+taskiq = [
+    "taskiq",
+]
+faststream = [
+    "faststream",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/doppy_di"]
@@ -99,6 +129,10 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = "doppy_di.ext.*"
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "test_ext_more_framework_adapters"
+ignore_errors = true
 
 [[tool.mypy.overrides]]
 module = ["click", "click.testing"]
