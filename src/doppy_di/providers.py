@@ -22,7 +22,17 @@ Examples:
 from __future__ import annotations
 
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from .container import Key, Rule, Scope
 from .inject import _BoundAssisted
@@ -41,6 +51,8 @@ __all__ = [
     "Resource",
     "Scoped",
     "Selector",
+    "SelectorContext",
+    "SetOf",
     "Singleton",
     "UnboundProvider",
     "Value",
@@ -77,6 +89,36 @@ def _dep_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
             )
         return dep.key
     return dep
+
+
+def _member_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
+    """Resolve an aggregate member to a registration key.
+
+    Unlike :func:`_dep_key`, an ``UnboundProvider`` member is an error:
+    aggregate providers must not silently drop unbound members.
+    """
+    if isinstance(dep, UnboundProvider):
+        raise ValueError(
+            f"Unbound provider {dep.key!r} used as an aggregate member; "
+            "assign it first, e.g. services.x = provider"
+        )
+    return _dep_key(dep)
+
+
+class SelectorContext:
+    """Context passed to ``Selector.selector_fn`` at resolution time.
+
+    Attributes:
+        key: The registration name of the ``Selector`` itself.
+        providers: Mapping of label to the resolved registration key of
+            each candidate provider.
+    """
+
+    __slots__ = ("key", "providers")
+
+    def __init__(self, key: str, providers: Dict[str, Key]) -> None:
+        self.key = key
+        self.providers = providers
 
 
 class Provider:
@@ -384,23 +426,28 @@ class Selector(Provider):
     def __init__(
         self,
         providers: Dict[str, Union[Key, Provider]],
-        selector_fn: Callable[[Any], str],
+        selector_fn: Callable[[SelectorContext], str],
     ) -> None:
         self.providers = providers
         self.selector_fn = selector_fn
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
-        deps = tuple(
-            dep for dep in (_dep_key(p) for p in self.providers.values()) if dep is not None
-        )
-        keys = list(self.providers.keys())
+        deps: List[Key] = []
+        labels: List[str] = []
+        for label, provider in self.providers.items():
+            dep = _member_key(provider)
+            if dep is None:
+                continue
+            deps.append(dep)
+            labels.append(label)
 
         def make(*args: Any) -> Any:
-            idx = keys.index(self.selector_fn(None))
+            ctx = SelectorContext(name, dict(zip(self.providers.keys(), deps)))
+            idx = labels.index(self.selector_fn(ctx))
             return args[idx]
 
-        return [Rule(name, make, "transient", deps)]
+        return [Rule(name, make, "transient", tuple(deps))]
 
 
 class ListOf(Provider):
@@ -422,8 +469,31 @@ class ListOf(Provider):
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
-        deps = tuple(dep for dep in (_dep_key(p) for p in self.providers) if dep is not None)
+        deps = tuple(dep for dep in (_member_key(p) for p in self.providers) if dep is not None)
         return [Rule(name, lambda *args: list(args), "transient", deps)]
+
+
+class SetOf(Provider):
+    """Provider aggregating several providers into a set.
+
+    Examples:
+        >>> from doppy_di import Container
+        >>> from doppy_di.providers import SetOf, Value
+        >>> services = Container()
+        >>> services.a = Value(1)
+        >>> services.b = Value(2)
+        >>> services.all = SetOf(services.a, services.b)
+        >>> services.get("all")
+        {1, 2}
+    """
+
+    def __init__(self, *providers: Union[Key, Provider]) -> None:
+        self.providers = providers
+
+    def to_rules(self, name: str) -> List[Rule]:
+        self.key = name
+        deps = tuple(dep for dep in (_member_key(p) for p in self.providers) if dep is not None)
+        return [Rule(name, lambda *args: set(args), "transient", deps)]
 
 
 class DictOf(Provider):
@@ -446,10 +516,53 @@ class DictOf(Provider):
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
         deps = tuple(
-            dep for dep in (_dep_key(p) for p in self.providers.values()) if dep is not None
+            dep for dep in (_member_key(p) for p in self.providers.values()) if dep is not None
         )
         keys = list(self.providers.keys())
         return [Rule(name, lambda *args: dict(zip(keys, args)), "transient", deps)]
+
+
+def implicit_collection_rule(key: Any, ruleset: Any) -> Optional[Rule]:
+    """Build a synthetic aggregate rule for ``List[T]``/``Set[T]``/``Dict[str, T]``.
+
+    Collects every registered rule whose key equals the item type or is a
+    ``(item_type, qualifier)`` tuple, in ruleset insertion order. Returns
+    ``None`` when ``key`` is not a collection annotation or no members are
+    registered, so explicit registrations always take precedence.
+    """
+    origin = get_origin(key)
+    if origin not in (list, set, dict):
+        return None
+    args = get_args(key)
+    if origin is dict:
+        if len(args) != 2 or args[0] is not str:
+            return None
+        item = args[1]
+        members: List[Tuple[str, Key]] = []
+        for registered in ruleset.map:
+            if registered == item:
+                members.append((getattr(item, "__name__", str(item)), registered))
+            elif isinstance(registered, tuple) and len(registered) == 2 and registered[0] == item:
+                members.append((registered[1], registered))
+        if not members:
+            return None
+        names = [label for label, _ in members]
+        deps = tuple(dep for _, dep in members)
+        return Rule(key, lambda *vals: dict(zip(names, vals)), "transient", deps)
+    item = args[0] if args else None
+    if item is None:
+        return None
+    deps = tuple(
+        registered
+        for registered in ruleset.map
+        if registered == item
+        or (isinstance(registered, tuple) and len(registered) == 2 and registered[0] == item)
+    )
+    if not deps:
+        return None
+    if origin is list:
+        return Rule(key, lambda *vals: list(vals), "transient", deps)
+    return Rule(key, lambda *vals: set(vals), "transient", deps)
 
 
 def __getattr__(name: str) -> Any:
