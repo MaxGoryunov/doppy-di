@@ -470,6 +470,28 @@ class ScopeViolationError(Exception):
         super().__init__(f"Scope violation for {key!r} in {scope!r}: {violation_type}")
 
 
+class ContextValueMissingError(Exception):
+    """Raised when a ``from_context`` key is absent in the active scope.
+
+    Examples:
+        >>> from doppy_di import Container, Scope
+        >>> from doppy_di.providers import from_context
+        >>> services = Container()
+        >>> services.user = from_context("user")
+        >>> with services.scope("req") as s:
+        ...     try:
+        ...         s.get("user")
+        ...     except ContextValueMissingError as exc:
+        ...         str(exc)
+        "Context value 'user' missing in 'request' scope"
+    """
+
+    def __init__(self, key: Key, scope: str) -> None:
+        self.key = key
+        self.scope = scope
+        super().__init__(f"Context value {key!r} missing in {scope!r} scope")
+
+
 class FactoryExecutionError(Exception):
     """Wraps an exception raised by a factory body.
 
@@ -1167,6 +1189,8 @@ class Scope:
         "cache",
         "container",
         "name",
+        "request_context",
+        "session_context",
     )
 
     def __init__(self, container: Container, name: str) -> None:
@@ -1174,10 +1198,63 @@ class Scope:
         self.container = container
         self.name = name
         self.cache: Dict[Key, Any] = {}
+        self.request_context: Dict[Key, Any] = {}
+        self.session_context: Dict[Key, Any] = {}
         self._exit_stack: List[Tuple[Key, ExitStack]] = []
         self._async_exit_stack: List[Tuple[Key, AsyncExitStack]] = []
         self._depth = 0
         self._resolver_previous: Optional[object] = None
+
+    def set_context(
+        self,
+        key: Key,
+        value: Any,
+        scope: Optional[Union[str, "Scope"]] = None,
+    ) -> None:
+        """Store a context value available to ``from_context`` providers.
+
+        Request-scope values are cleared when the scope exits; session-scope
+        values persist for the scope lifetime.
+
+        Examples:
+            >>> from doppy_di import Container
+            >>> from doppy_di.providers import from_context
+            >>> services = Container()
+            >>> services.user = from_context("user")
+            >>> with services.scope("req") as s:
+            ...     s.set_context("user", "alice")
+            ...     s.get("user")
+            'alice'
+        """
+        from .providers import _scope_value
+
+        is_session = scope is not None and _scope_value(scope) == _scope_value(Scope.SESSION)
+        if is_session:
+            self.session_context[key] = value
+        else:
+            self.request_context[key] = value
+
+    def get_context(
+        self,
+        key: Key,
+        scope: Optional[Union[str, "Scope"]] = None,
+    ) -> Any:
+        """Read a context value stored via :meth:`set_context`.
+
+        Raises:
+            ContextValueMissingError: When the key is absent in the scope.
+        """
+        from .providers import _scope_value
+
+        is_session = scope is not None and _scope_value(scope) == _scope_value(Scope.SESSION)
+        store = self.session_context if is_session else self.request_context
+        try:
+            return store[key]
+        except KeyError:
+            raise ContextValueMissingError(
+                key,
+                _scope_value(scope) if scope is not None else _scope_value(Scope.REQUEST),
+            ) from None
 
     def get(self, key: Key) -> Any:
         """Resolve key from scope cache or underlying container.
@@ -1239,6 +1316,7 @@ class Scope:
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
+            self.request_context.clear()
             errors: List[Tuple[Key, Exception]] = []
             for key, stack in self._exit_stack:
                 try:
@@ -1324,6 +1402,7 @@ class AsyncScope(Scope):
         self._depth -= 1
         if self._depth == 0:
             self.cache.clear()
+            self.request_context.clear()
             errors: List[Tuple[Key, Exception]] = []
             for key, stack in self._async_exit_stack:
                 try:

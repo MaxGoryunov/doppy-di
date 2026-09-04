@@ -41,5 +41,7 @@ def setup_doppy(
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
         async with container.ascope(scope) as s:
+            s.set_context("request", request)
+            s.set_context("scope", s)
             request.state.doppy_scope = s
             return await call_next(request)

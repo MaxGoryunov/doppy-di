@@ -140,6 +140,26 @@ def handle_request(request_id: str) -> dict:
         return process(user, data)
 ```
 
+### Per-request context data (`from_context`)
+
+Pull objects placed on the active scope into dependencies. Framework middleware (FastAPI, aiogram) binds the `request`/`event` object into the scope context, and `from_context` resolves it into any downstream dependency — no manual `get` calls in handlers.
+
+```python
+from doppy_di import Container, Scope
+from doppy_di.providers import from_context
+
+services = Container()
+services.req = from_context("request")          # request-scope value
+services.session_user = from_context("user", Scope.SESSION)  # session-scope
+
+with services.scope("request") as s:
+    s.set_context("request", current_request)            # request scope
+    s.set_context("user", current_user, Scope.SESSION)   # session scope
+    req = services.get("req")            # the current request object
+```
+
+Request-scope values are cleared when the scope exits, so a reused named scope never leaks data across requests. Session-scope values persist for the scope lifetime. Resolving a `from_context` key with no value raises `ContextValueMissingError`.
+
 ### Validation at build time
 
 Enable build-time validation to catch missing dependencies early.
