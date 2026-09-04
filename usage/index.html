@@ -1,0 +1,1562 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+      
+      
+        <link rel="canonical" href="https://MaxGoryunov.github.io/doppy-di/usage/">
+      
+      
+        <link rel="prev" href="../installation/">
+      
+      
+        <link rel="next" href="../speed/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Usage - doppy-di</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/_mkdocstrings.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    <body dir="ltr">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#usage" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="doppy-di" class="md-header__button md-logo" aria-label="doppy-di" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            doppy-di
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Usage
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/MaxGoryunov/doppy-di" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    MaxGoryunov/doppy-di
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="doppy-di" class="md-nav__button md-logo" aria-label="doppy-di" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    doppy-di
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/MaxGoryunov/doppy-di" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    MaxGoryunov/doppy-di
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Usage
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-basic-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Basic container
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-singleton-vs-transient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Singleton vs transient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Scopes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Aliases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Overrides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-duplicate-key-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Duplicate-key policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-build-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Build validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-cycle-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Cycle detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-compile-plan-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Compile / plan mode
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Compile / plan mode">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#override-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Override policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-overhead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero overhead
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-observability-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Observability / tracing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Observability / tracing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#opentelemetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenTelemetry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-async-first-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Async-first resolution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Async-first resolution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixed-graph-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed-graph rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallel-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-provider-facade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Provider facade
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. Provider facade">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#provider-classes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider classes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-config-profiles-and-child-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Config profiles and child containers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-resolution-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Resolution policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-graph-introspection-and-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Graph introspection and CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#devkit-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Devkit extensions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Devkit extensions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validatingcontainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ValidatingContainer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loggingcontainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LoggingContainer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../speed/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Speed comparison
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-basic-container" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Basic container
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-singleton-vs-transient" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Singleton vs transient
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-dependencies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Dependencies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-scopes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Scopes
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-aliases" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Aliases
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-overrides" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Overrides
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-duplicate-key-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Duplicate-key policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#8-build-validation" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        8. Build validation
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#9-cycle-detection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        9. Cycle detection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#10-compile-plan-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        10. Compile / plan mode
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="10. Compile / plan mode">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#override-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Override policy
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#serialization" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serialization
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#zero-overhead" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Zero overhead
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#11-observability-tracing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        11. Observability / tracing
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="11. Observability / tracing">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#opentelemetry" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        OpenTelemetry
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#12-async-first-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        12. Async-first resolution
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="12. Async-first resolution">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#mixed-graph-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Mixed-graph rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#parallel-resolution" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Parallel resolution
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#13-provider-facade" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        13. Provider facade
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="13. Provider facade">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#provider-classes" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Provider classes
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#14-config-profiles-and-child-containers" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        14. Config profiles and child containers
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#15-resolution-policies" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        15. Resolution policies
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#16-graph-introspection-and-cli" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        16. Graph introspection and CLI
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#devkit-extensions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Devkit extensions
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Devkit extensions">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#validatingcontainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        ValidatingContainer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#loggingcontainer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LoggingContainer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#nested-rules" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Nested rules
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="usage">Usage</h1>
+<h2 id="1-basic-container">1. Basic container</h2>
+<pre><code class="language-python">from doppy_di import ContainerBuilder
+
+builder = ContainerBuilder()
+builder.service(&quot;greet&quot;, lambda: &quot;Hello&quot;)
+builder.value(&quot;pi&quot;, 3.14)
+
+container = builder.build()
+assert container.get(&quot;greet&quot;) == &quot;Hello&quot;
+assert container.get(&quot;pi&quot;) == 3.14
+</code></pre>
+<h2 id="2-singleton-vs-transient">2. Singleton vs transient</h2>
+<p>Singleton: same object on every <code>get</code>.<br />
+Transient: new object on every <code>get</code>.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.service(&quot;s&quot;, lambda: object(), lifetime=&quot;singleton&quot;)
+builder.service(&quot;t&quot;, lambda: object(), lifetime=&quot;transient&quot;)
+
+c = builder.build()
+assert c.get(&quot;s&quot;) is c.get(&quot;s&quot;)       # same
+assert c.get(&quot;t&quot;) is not c.get(&quot;t&quot;)   # different
+</code></pre>
+<h2 id="3-dependencies">3. Dependencies</h2>
+<p>Factories receive resolved dependencies as positional args.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.value(&quot;greeting&quot;, &quot;Hello&quot;)
+builder.value(&quot;name&quot;, &quot;World&quot;)
+builder.service(
+    &quot;message&quot;,
+    lambda greeting, name: f&quot;{greeting}, {name}!&quot;,
+    deps=[&quot;greeting&quot;, &quot;name&quot;],
+)
+c = builder.build()
+assert c.get(&quot;message&quot;) == &quot;Hello, World!&quot;
+</code></pre>
+<h2 id="4-scopes">4. Scopes</h2>
+<p>Scope caches resolved values within a <code>with</code> block. On exit the cache is cleared.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.service(&quot;x&quot;, lambda: object(), lifetime=&quot;transient&quot;)
+c = builder.build()
+
+with c.scope(&quot;req&quot;) as s:
+    a = s.get(&quot;x&quot;)
+    b = s.get(&quot;x&quot;)
+    assert a is b   # cached within scope
+</code></pre>
+<p>Scopes can nest:</p>
+<pre><code class="language-python">with c.scope(&quot;outer&quot;) as outer:
+    with c.scope(&quot;inner&quot;) as inner:
+        ...
+</code></pre>
+<h2 id="5-aliases">5. Aliases</h2>
+<p>An alias points to another key. Resolving an alias resolves the target.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.value(&quot;pi&quot;, 3.14)
+builder.alias(&quot;π&quot;, &quot;pi&quot;)
+
+c = builder.build()
+assert c.get(&quot;π&quot;) == 3.14
+</code></pre>
+<h2 id="6-overrides">6. Overrides</h2>
+<p>Temporarily replace one or more values for the duration of a <code>with</code> block.
+Overrides stack: nested <code>override()</code> blocks are LIFO, the last one wins, and
+exiting restores the original rules — even on exception.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.value(&quot;x&quot;, 1)
+builder.value(&quot;y&quot;, 2)
+c = builder.build()
+
+# single key
+with c.override(&quot;x&quot;, 99):
+    assert c.get(&quot;x&quot;) == 99
+
+# dict of keys, nested stack
+with c.override({&quot;x&quot;: 10, &quot;y&quot;: 20}):
+    assert c.get(&quot;x&quot;) == 10
+    assert c.get(&quot;y&quot;) == 20
+    with c.override({&quot;x&quot;: 30}):
+        assert c.get(&quot;x&quot;) == 30   # last wins
+    assert c.get(&quot;x&quot;) == 10
+
+assert c.get(&quot;x&quot;) == 1
+assert c.get(&quot;y&quot;) == 2
+</code></pre>
+<p>A callable override is treated as a factory and invoked on every resolution:</p>
+<pre><code class="language-python">with c.override({&quot;x&quot;: lambda: 42}):
+    assert c.get(&quot;x&quot;) == 42
+</code></pre>
+<p>Overrides are validated on entry. Overriding a singleton with a scoped
+dependency or a resource with a plain value raises <code>ValueError</code>.</p>
+<p>For pytest, wrap the container in a fixture:</p>
+<pre><code class="language-python">@pytest.fixture
+def container_with_overrides(container):
+    with container.override({&quot;db&quot;: fake_db}):
+        yield container
+</code></pre>
+<h2 id="7-duplicate-key-policies">7. Duplicate-key policies</h2>
+<p>Control behaviour when the same key is registered twice.</p>
+<pre><code class="language-python">from doppy_di import DuplicateKeyPolicy
+
+# FAIL — raise DuplicateKeyError
+builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.FAIL)
+builder.value(&quot;x&quot;, 1)
+builder.value(&quot;x&quot;, 2)  # raises DuplicateKeyError
+
+# WARN — log warning, overwrite
+builder = ContainerBuilder(duplicate_policy=DuplicateKeyPolicy.WARN)
+
+# OVERWRITE (default) — silently replace
+builder = ContainerBuilder()
+</code></pre>
+<h2 id="8-build-validation">8. Build validation</h2>
+<p>Pass <code>validate=True</code> to catch missing dependencies at build time.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.service(&quot;a&quot;, lambda b: b.upper(), deps=[&quot;b&quot;])
+
+# raises ContainerBuildError: a -&gt; b
+c = builder.build(validate=True)
+</code></pre>
+<h2 id="9-cycle-detection">9. Cycle detection</h2>
+<p>Cycles are detected automatically when a rule is added.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.service(&quot;a&quot;, lambda b: b, deps=[&quot;b&quot;])
+builder.service(&quot;b&quot;, lambda a: a, deps=[&quot;a&quot;])  # raises CycleError
+</code></pre>
+<h2 id="10-compile-plan-mode">10. Compile / plan mode</h2>
+<p>Compile the dependency graph once into an immutable <code>ExecutionPlan</code>:</p>
+<pre><code class="language-python">from doppy_di import CompilePolicy, ContainerBuilder, ExecutionPlan
+
+builder = ContainerBuilder()
+builder.value(&quot;a&quot;, 1)
+builder.service(&quot;b&quot;, lambda a: a + 1, deps=[&quot;a&quot;])
+container = builder.build()
+
+plan = container.compile()
+assert plan.get(&quot;b&quot;) == 2
+</code></pre>
+<p><code>compile()</code> validates the full graph up front: missing dependencies raise
+<code>MissingDependencyError</code>, cycles raise <code>DependencyCycleError</code>. The plan is
+immutable and resolves through the live container, so lifetimes, singleton
+caches and scopes keep identical semantics.</p>
+<h3 id="override-policy">Override policy</h3>
+<p>Compiler is opt-in policy.</p>
+<pre><code class="language-python"># ALLOW_OVERRIDE (default): overrides still apply through the live container
+builder = ContainerBuilder(compile_policy=CompilePolicy.ALLOW_OVERRIDE)
+container = builder.build()
+plan = container.compile()
+with container.override(&quot;a&quot;, 10):
+    assert plan.get(&quot;b&quot;) == 11
+
+# STRICT: after compile() the container rejects further overrides
+strict = ContainerBuilder(compile_policy=CompilePolicy.STRICT).build()
+strict.compile()
+strict.override(&quot;x&quot;, 1)  # raises RuntimeError
+</code></pre>
+<h3 id="serialization">Serialization</h3>
+<p>Plans persist graph topology, rule metadata and resolved singletons to JSON:</p>
+<pre><code class="language-python">data = plan.serialize()
+restored = ExecutionPlan.deserialize(data)
+assert restored.get(&quot;a&quot;) == 1
+</code></pre>
+<p>Factories are not serialized. After deserialization only registered singleton
+values resolve; factory-backed keys raise <code>ServiceNotFoundError</code>. Use
+module-level factory functions for true cross-process plan caching.</p>
+<h3 id="zero-overhead">Zero overhead</h3>
+<p><code>compile()</code> is fully opt-in. If it is never called, no plan is built and no
+extra work happens at resolution time.</p>
+<h2 id="11-observability-tracing">11. Observability / tracing</h2>
+<p>Set a tracer callback to observe every resolution. The callback receives
+<code>(key, duration, cache_hit, scope)</code> after each successful <code>get()</code>/<code>aget()</code>.</p>
+<pre><code class="language-python">events = []
+
+def tracer(key, duration, cache_hit, scope):
+    events.append((key, duration, cache_hit, scope))
+
+builder = ContainerBuilder()
+builder.value(&quot;a&quot;, 1)
+container = builder.build()
+container.set_tracer(tracer)
+
+container.get(&quot;a&quot;)
+container.get(&quot;a&quot;)  # cache hit
+
+assert events[0] == (&quot;a&quot;, _, False, None)  # miss
+assert events[1] == (&quot;a&quot;, _, True, None)   # hit
+</code></pre>
+<p>Pass <code>set_tracer(None)</code> to disable tracing. When no tracer is set there is
+no timing and no dispatch — zero overhead. Child containers inherit the
+parent tracer. Scope resolutions report the scope name as the last argument.</p>
+<h3 id="opentelemetry">OpenTelemetry</h3>
+<p>Install the optional extra and attach an adapter that emits spans:</p>
+<pre><code class="language-bash">pip install &quot;doppy-di[otel]&quot;
+</code></pre>
+<pre><code class="language-python">from doppy_di import ContainerBuilder
+from doppy_di.ext.otel import otel_adapter
+
+builder = ContainerBuilder()
+builder.value(&quot;a&quot;, 1)
+container = builder.build()
+container.set_tracer(otel_adapter())
+
+container.get(&quot;a&quot;)  # emits doppy.resolve:'a' span
+</code></pre>
+<h2 id="12-async-first-resolution">12. Async-first resolution</h2>
+<p><code>aget()</code> resolves sync and async factories, sync and async resources, and
+resolves independent dependency branches concurrently. Sync factories are
+called directly with no <code>await</code> overhead.</p>
+<pre><code class="language-python">import asyncio
+
+async def make_db():
+    return &quot;async-db&quot;
+
+builder = ContainerBuilder()
+builder.service(&quot;db&quot;, make_db)
+container = builder.build()
+
+db = asyncio.run(container.aget(&quot;db&quot;))
+assert db == &quot;async-db&quot;
+</code></pre>
+<p>Async yield providers are finalized on scope exit and on cancellation:</p>
+<pre><code class="language-python">async def make_session():
+    try:
+        yield Database()
+    finally:
+        await cleanup()
+
+builder.service(&quot;session&quot;, make_session)
+container = builder.build()
+
+async with container.ascope(&quot;req&quot;) as scope:
+    session = await scope.aget(&quot;session&quot;)
+# session finalized on scope exit
+</code></pre>
+<h3 id="mixed-graph-rules">Mixed-graph rules</h3>
+<p>A sync factory depending on an async dependency raises
+<code>AsyncDependencyInSyncContextError</code> when resolved via <code>get()</code>. A sync factory
+returning an awaitable raises <code>SyncFactoryReturningAwaitableError</code>. A
+cancelled <code>aget()</code> finalizes partially-created resources and raises
+<code>ResolutionCancelledError</code>.</p>
+<h3 id="parallel-resolution">Parallel resolution</h3>
+<p><code>get_many()</code> resolves independent keys concurrently:</p>
+<pre><code class="language-python">a, b = await container.get_many([&quot;a&quot;, &quot;b&quot;], parallel=True)
+</code></pre>
+<h2 id="13-provider-facade">13. Provider facade</h2>
+<p>Declarative providers convert to rules on attribute assignment. Import from
+<code>doppy_di.providers</code>; the package-level <code>Factory</code> protocol is untouched.</p>
+<pre><code class="language-python">from doppy_di import Container, Scope
+from doppy_di.providers import Factory, Singleton, Value, Resource
+
+services = Container()
+services.config = Value({&quot;debug&quot;: True})
+services.db = Resource(create_db, Scope.APP)
+services.repo = Factory(UserRepository, db=services.db)
+services.service = Singleton(UserService, repo=services.repo)
+
+assert services.get(&quot;config&quot;) == {&quot;debug&quot;: True}
+</code></pre>
+<p>Dependencies may reference providers before they are assigned; unbound
+placeholders resolve by name at rule registration. Assigning a class factory
+registers both the named key and a type key.</p>
+<h3 id="provider-classes">Provider classes</h3>
+<ul>
+<li><code>Factory</code> — transient factory.</li>
+<li><code>Singleton</code> — singleton factory.</li>
+<li><code>Scoped</code> — factory cached per scope.</li>
+<li><code>Value</code> — constant value.</li>
+<li><code>Resource</code> — yield-based resource finalized on scope exit.</li>
+<li><code>Coroutine</code> — async factory.</li>
+<li><code>Alias</code> — points at another key.</li>
+<li><code>Selector</code> — picks one provider at resolution time.</li>
+<li><code>ListOf</code> — aggregates providers into a list.</li>
+<li><code>DictOf</code> — aggregates named providers into a dict.</li>
+</ul>
+<h2 id="14-config-profiles-and-child-containers">14. Config profiles and child containers</h2>
+<p>Derive environment-specific containers without mutating the base.</p>
+<pre><code class="language-python">builder = ContainerBuilder()
+builder.value(&quot;env&quot;, &quot;base&quot;)
+container = builder.build()
+
+prod = container.with_profile(&quot;prod&quot;, {&quot;env&quot;: &quot;prod&quot;})
+assert container.get(&quot;env&quot;) == &quot;base&quot;
+assert prod.get(&quot;env&quot;) == &quot;prod&quot;
+</code></pre>
+<p><code>child()</code> layers rules over the parent; parent rules added later stay
+visible.</p>
+<pre><code class="language-python">child = container.child(&quot;worker&quot;)
+child.value(&quot;role&quot;, &quot;worker&quot;)
+assert child.get(&quot;env&quot;) == &quot;base&quot;   # parent rule visible
+</code></pre>
+<p><code>diff(other)</code> returns a <code>DiffReport</code> of added/removed/changed keys:</p>
+<pre><code class="language-python">report = container.diff(prod)
+assert &quot;env&quot; in report.changed
+</code></pre>
+<p><code>export_config()</code> serializes the effective configuration to JSON:</p>
+<pre><code class="language-python">config = container.export_config()
+# '{&quot;env&quot;: &quot;base&quot;}'
+</code></pre>
+<h2 id="15-resolution-policies">15. Resolution policies</h2>
+<p>Policies control the order of dependency resolution. Opt-in; default
+behaviour unchanged when none specified.</p>
+<pre><code class="language-python">from doppy_di import (
+    ResolutionChildrenFirstPolicy,
+    EagerPolicy,
+    ParallelPolicy,
+)
+
+# container-wide policy
+container = builder.build(policy=ResolutionChildrenFirstPolicy())
+
+# per-call policy
+container.get(&quot;a&quot;, policy=EagerPolicy())
+</code></pre>
+<p>Built-in policies: <code>DefaultResolutionPolicy</code>, <code>LazyPolicy</code>,
+<code>ResolutionParentFirstPolicy</code>, <code>ResolutionChildrenFirstPolicy</code>,
+<code>EagerPolicy</code>, <code>ParallelPolicy</code>. Implement the <code>ResolutionPolicy</code> protocol
+(<code>order(graph, root)</code>) for custom strategies.</p>
+<p>Note: top-level <code>ChildrenFirstPolicy</code>/<code>ParentFirstPolicy</code> are devkit
+nested-field ordering policies. Resolution policies use the
+<code>ResolutionChildrenFirstPolicy</code>/<code>ResolutionParentFirstPolicy</code> aliases.</p>
+<h2 id="16-graph-introspection-and-cli">16. Graph introspection and CLI</h2>
+<p>Query the dependency graph programmatically:</p>
+<pre><code class="language-python">g = container.graph()
+g.nodes()               # all registered keys
+g.edges()               # (key, dependency) pairs
+g.dependencies_of(&quot;a&quot;)  # direct deps
+g.dependents_of(&quot;a&quot;)    # direct dependents
+g.to_mermaid()          # mermaid
+g.to_dot()              # graphviz
+g.to_json()             # dict
+g.to_text()             # text tree
+</code></pre>
+<p>Inspect or lint container definitions from a file:</p>
+<pre><code class="language-bash">doppy-di graph container.py --format mermaid
+doppy-di explain db --file container.py
+doppy-di check container.py --root service --strict
+</code></pre>
+<p><code>graph</code> supports <code>mermaid</code>, <code>dot</code>, <code>json</code>, <code>text</code> formats. <code>explain</code> shows
+lifetime, scope, dependencies and dependents of a key. <code>check</code> reports
+missing dependencies, cycles, duplicate registrations, unused registrations
+(with <code>--root</code>), and lifetime violations.</p>
+<h2 id="devkit-extensions">Devkit extensions</h2>
+<h3 id="validatingcontainer">ValidatingContainer</h3>
+<p>Wrap a container with resolution ordering and validation rules.</p>
+<pre><code class="language-python">from doppy_di import (
+    ContainerBuilder,
+    UnorderedPolicy,
+    ValidatingContainer,
+    ValidationRunner,
+)
+
+builder = ContainerBuilder()
+builder.value(&quot;x&quot;, 1)
+base = builder.build()
+
+wrapped = ValidatingContainer(
+    base, UnorderedPolicy(), ValidationRunner()
+)
+assert wrapped.get(&quot;x&quot;) == 1
+</code></pre>
+<h3 id="loggingcontainer">LoggingContainer</h3>
+<p>Log every container operation.</p>
+<pre><code class="language-python">from doppy_di import ContainerBuilder, LoggingContainer
+
+events = []
+
+def log(msg: str) -&gt; None:
+    events.append(msg)
+
+builder = ContainerBuilder()
+builder.value(&quot;x&quot;, 1)
+base = builder.build()
+
+wrapped = LoggingContainer(base, log)
+wrapped.get(&quot;x&quot;)
+
+assert &quot;get('x')&quot; in events
+</code></pre>
+<h3 id="nested-rules">Nested rules</h3>
+<p>Validate that a resolved object's attribute matches a separately
+resolved nested rule.</p>
+<pre><code class="language-python">from doppy_di import (
+    ContainerBuilder,
+    NestedRules,
+    Rule,
+    RuleSet,
+)
+
+class Service:
+    def __init__(self):
+        self.repo = &quot;db&quot;
+
+nested = NestedRules()
+rule = Rule((&quot;service&quot;, &quot;repo&quot;), lambda: &quot;db&quot;)
+rs = RuleSet()
+nested.add_nested(&quot;service&quot;, &quot;repo&quot;, rule, rs)
+
+builder = ContainerBuilder()
+builder.service(&quot;service&quot;, lambda: Service())
+base = builder.build()
+
+# validate_nested checks attribute == resolved nested value
+nested.validate_nested(&quot;service&quot;, base)
+</code></pre>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": [], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
