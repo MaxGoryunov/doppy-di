@@ -113,6 +113,39 @@ def test_starlette_registers_middleware() -> None:
     assert app.middlewares
 
 
+def test_starlette_middleware_dispatch_opens_scope() -> None:
+    pytest.importorskip("starlette")
+    from doppy_di.ext.starlette import setup_doppy
+
+    captured: dict[str, Any] = {}
+    app = _FakeStarletteApp()
+
+    def add_middleware(cls: Any) -> None:
+        captured["cls"] = cls
+
+    app.add_middleware = add_middleware  # type: ignore[method-assign]
+    container = ContainerBuilder().build()
+    setup_doppy(cast(Any, app), container)
+
+    middleware_cls = captured["cls"]
+    middleware = middleware_cls(lambda r: None)  # type: ignore[arg-type]
+    middleware.scope = "req"
+    called = []
+
+    async def call_next(request: Any) -> str:
+        called.append(request)
+        return "ok"
+
+    request = SimpleNamespace(state=SimpleNamespace())
+
+    async def main() -> str:
+        return await middleware.dispatch(request, call_next)
+
+    assert asyncio.run(main()) == "ok"
+    assert called == [request]
+    assert getattr(request.state, "doppy_scope", None) is not None
+
+
 # --------------------------------------------------------------------------- #
 # Aiohttp
 # --------------------------------------------------------------------------- #
@@ -200,6 +233,37 @@ def test_litestar_wires_hooks_on_instance(monkeypatch: Any) -> None:
     services.req = from_context("request")
     app = SimpleNamespace()
     setup_doppy(app, services)
+    request = SimpleNamespace(scope={})
+
+    async def main() -> None:
+        await app.on_before_request(request)
+        scope_obj = request.scope["doppy_scope"]
+        assert await scope_obj.get("req") is request
+        assert await app.on_after_request(request, "resp") == "resp"
+
+    asyncio.run(main())
+
+
+def test_litestar_wires_hooks_on_class(monkeypatch: Any) -> None:
+    class _FakeLitestar:
+        def __init__(self, **kwargs: Any) -> None:
+            self.__dict__.update(kwargs)
+
+    litestar_fake = types.ModuleType("litestar")
+    litestar_fake.Litestar = _FakeLitestar
+    _install_fake(monkeypatch, "litestar", litestar_fake)
+
+    from doppy_di.ext.litestar import setup_doppy
+
+    services = Container()
+    services.req = from_context("request")
+
+    class MyApp(_FakeLitestar):
+        pass
+
+    app = setup_doppy(MyApp, services)
+    assert hasattr(app, "on_before_request")
+    assert hasattr(app, "on_after_request")
 
     request = SimpleNamespace(scope={})
 
@@ -321,6 +385,30 @@ def test_faststream_wires_hooks_on_app_class(monkeypatch: Any) -> None:
 
     app_cls = faststream_fake.FastStream
     app = setup_doppy(app_cls, services)
+    message = object()
+
+    async def main() -> None:
+        await app.before_handle(message)
+        assert await app.doppy_manager._scope.get("msg") is message  # type: ignore[attr-defined]
+        assert await app.after_handle(message, "ok") == "ok"
+
+    asyncio.run(main())
+
+
+def test_faststream_wires_hooks_on_app_instance(monkeypatch: Any) -> None:
+    class _FakeFastStream:
+        pass
+
+    faststream_fake = types.ModuleType("faststream")
+    faststream_fake.FastStream = _FakeFastStream
+    _install_fake(monkeypatch, "faststream", faststream_fake)
+
+    from doppy_di.ext.faststream import setup_doppy
+
+    services = Container()
+    services.msg = from_context("message")
+
+    app = setup_doppy(_FakeFastStream(), services)
     message = object()
 
     async def main() -> None:
