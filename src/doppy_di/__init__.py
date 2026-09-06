@@ -68,6 +68,7 @@ from .devkit import (
 )
 from .graph import DependencyGraph
 from .inject import Depends, External, MissingExternalArgumentError, assisted, inject
+from .module import Module, ModuleBinder
 from .plan import ExecutionPlan
 from .resolution import (
     ChildrenFirstPolicy as ResolutionChildrenFirstPolicy,
@@ -123,6 +124,8 @@ __all__ = [
     "MissingAnnotationError",
     "MissingDependencyError",
     "MissingExternalArgumentError",
+    "Module",
+    "ModuleBinder",
     "NestedPolicy",
     "NestedRules",
     "OrderPolicy",

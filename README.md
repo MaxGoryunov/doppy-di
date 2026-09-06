@@ -386,6 +386,32 @@ assert prod.get("env") == "prod"
 visible. `diff(other)` returns a `DiffReport` of added/removed/changed keys.
 `export_config()` serializes the effective configuration to JSON.
 
+### Child containers and module isolation
+
+Create isolated child containers that layer local rules over a parent and
+install groups of rules as modules, without mutating the parent.
+
+```python
+class DbModule:
+    def configure(self, binder):
+        binder.value("db", "sqlite")
+
+parent = ContainerBuilder().value("db", "postgres").build()
+child = parent.create_child()
+child.install(DbModule)
+assert child.get("db") == "sqlite"   # module shadows parent key
+assert parent.get("db") == "postgres"  # parent untouched
+```
+
+Child isolation semantics are explicit: writes (module installs, overrides,
+local registrations) go only to the child's own layer and never leak into the
+parent; reads fall back to the parent's live rules, so registrations added to
+the parent after the child was created stay visible. Parent singleton keys
+resolved through a child reuse the parent's cached instance, preserving
+singleton identity (`create_child(share_singletons=False)` opts out). A module
+is any object with a `configure(binder)` method or a plain callable, and may
+be installed via `ContainerBuilder.install(...)` or `Container.install(...)`.
+
 ### Compile / plan mode
 
 Compile the graph once into an immutable `ExecutionPlan`.

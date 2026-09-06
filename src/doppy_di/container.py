@@ -50,6 +50,7 @@ from typing_extensions import TYPE_CHECKING, Self, TypeAlias
 
 if TYPE_CHECKING:
     from .graph import DependencyGraph
+    from .module import ModuleLike
     from .plan import ExecutionPlan
     from .resolution import ResolutionPolicy
 
@@ -1417,6 +1418,63 @@ class AsyncScope(Scope):
                 raise ResourceFinalizationError(errors)
 
 
+class _ChildSingletonCache(Dict[Key, Any]):
+    """Singleton cache for a child container sharing parent singletons.
+
+    Reads fall through to the parent cache when the key is not registered
+    in the child's own ruleset layer. Writes for parent-owned keys are
+    mirrored into the parent cache so singleton identity is preserved no
+    matter which container resolves the key first.
+
+    Examples:
+        >>> parent_cache = {}
+        >>> cache = _ChildSingletonCache(parent_cache, lambda key: False)
+        >>> cache["db"] = object()
+        >>> parent_cache["db"] is cache["db"]
+        True
+    """
+
+    __slots__ = ("_is_local", "_parent")
+
+    def __init__(
+        self,
+        parent_cache: Dict[Key, Any],
+        is_local: Callable[[Key], bool],
+    ) -> None:
+        super().__init__()
+        self._parent = parent_cache
+        self._is_local = is_local
+
+    def __contains__(self, key: object) -> bool:
+        if super().__contains__(key):
+            return True
+        if self._is_local(key):
+            return False
+        return key in self._parent
+
+    def __getitem__(self, key: Key) -> Any:
+        try:
+            return super().__getitem__(key)
+        except KeyError:
+            if not self._is_local(key) and key in self._parent:
+                return self._parent[key]
+            raise
+
+    def get(self, key: Key, default: Any = None) -> Any:
+        if super().__contains__(key):
+            return super().__getitem__(key)
+        if not self._is_local(key) and key in self._parent:
+            return self._parent[key]
+        return default
+
+    def __setitem__(self, key: Key, value: Any) -> None:
+        if self._is_local(key):
+            super().__setitem__(key, value)
+        else:
+            self._parent[key] = value
+            super().__setitem__(key, value)
+
+
 class Container:
     """Runtime container with singleton cache.
 
@@ -2074,6 +2132,94 @@ class Container:
         except (ServiceNotFoundError, UnregisteredDependencyError):
             return None
 
+    def create_child(
+        self, share_singletons: bool = True, profile: "Optional[str]" = None
+    ) -> "Container":
+        """Create a child container layering rules over this container.
+
+        The child resolves keys from its own local rules first and falls
+        back to the parent's rules. Rules added to the parent after the
+        child was created stay visible. Writes (including module installs
+        and overrides) go only to the child and never mutate the parent.
+
+        Args:
+            share_singletons: When True (default), parent singleton keys
+                resolved through the child reuse the parent's cached
+                instance, preserving singleton identity. When False the
+                child builds its own instances.
+
+        Returns:
+            A new :class:`Container` whose ruleset is a
+            :class:`CompositeRuleSet` over this container's ruleset.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("db", "parent-db")
+            >>> parent = builder.build()
+            >>> child = parent.create_child()
+            >>> child.get("db")
+            'parent-db'
+            >>> parent.has("child-only") or True
+            True
+        """
+        composite = CompositeRuleSet(self.config.ruleset)
+        child = Container(
+            ContainerConfig(
+                composite,
+                scope_policy=self.scope_policy,
+                compile_policy=self.config.compile_policy,
+                track_sources=self.config.track_sources,
+                wrap_factory_errors=self.config.wrap_factory_errors,
+                finalization_errors=self.config.finalization_errors,
+                policy=self._policy,
+                profile=profile,
+            )
+        )
+        if share_singletons:
+            child.single = _ChildSingletonCache(
+                self.single,
+                lambda key: key in composite.own_map,
+            )
+        child._tracer = self._tracer
+        return child
+
+    def install(
+        self,
+        *modules: "ModuleLike",
+        duplicate_policy: DuplicateKeyPolicy = DuplicateKeyPolicy.OVERWRITE,
+    ) -> Self:
+        """Install modules into this container's ruleset.
+
+        Each module is an object with a ``configure(binder)`` method or a
+        plain callable accepting a :class:`~doppy_di.module.ModuleBinder`.
+        On a child container the rules are written to the local layer,
+        leaving the parent untouched; a module may shadow a parent key.
+
+        Args:
+            modules: Modules to install.
+            duplicate_policy: Policy for keys already present in the
+                writable layer. Parent keys of a child container never
+                count as duplicates.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.value("db", "sqlite")
+            >>> container = builder.build()
+            >>> class AppModule:
+            ...     def configure(self, binder):
+            ...         binder.service("app", lambda db: db, deps=["db"])
+            >>> child = container.create_child()
+            >>> child.install(AppModule)
+            >>> child.get("app")
+            'sqlite'
+            >>> container.has("app")
+            False
+        """
+        from .module import apply_modules
+
+        apply_modules(self.config.ruleset, modules, duplicate_policy)
+        return self
+
     def scope(self, name: str) -> Scope:
         """Return a named or unique scope according to the active policy.
 
@@ -2245,20 +2391,14 @@ class Container:
             'child-db'
             >>> parent.get("db")
             'base-db'
+
+        Notes:
+            ``child()`` keeps an isolated singleton cache (a parent singleton
+            resolved through the child is a distinct instance). Use
+            :meth:`create_child` with ``share_singletons=True`` (default) to
+            share the parent's cached singletons across the boundary.
         """
-        composite = CompositeRuleSet(self.config.ruleset)
-        child_container = Container(
-            ContainerConfig(
-                composite,
-                scope_policy=self.config.scope_policy,
-                track_sources=self.config.track_sources,
-                wrap_factory_errors=self.config.wrap_factory_errors,
-                finalization_errors=self.config.finalization_errors,
-                profile=name,
-            )
-        )
-        child_container._tracer = self._tracer
-        child_container._policy = self._policy
+        child_container = self.create_child(share_singletons=False, profile=name)
         return child_container
 
     def with_profile(
@@ -2742,6 +2882,37 @@ class ContainerBuilder:
                 deps=(target,),
             ),
         )
+        return self
+
+    def install(
+        self,
+        *modules: "ModuleLike",
+        duplicate_policy: "Optional[DuplicateKeyPolicy]" = None,
+    ) -> Self:
+        """Install modules into the builder's rule set.
+
+        Each module is an object with a ``configure(binder)`` method or a
+        plain callable accepting a :class:`~doppy_di.module.ModuleBinder`.
+
+        Args:
+            modules: Modules to install.
+            duplicate_policy: Policy for keys already present in the
+                builder's rule set. Defaults to the builder's own
+                ``duplicate_policy`` when not given.
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> class DbModule:
+            ...     def configure(self, binder):
+            ...         binder.value("db", "sqlite")
+            >>> builder.install(DbModule)
+            >>> builder.build().get("db")
+            'sqlite'
+        """
+        from .module import apply_modules
+
+        policy = duplicate_policy or self.duplicate_policy
+        apply_modules(self.rules, modules, policy)
         return self
 
     def build(

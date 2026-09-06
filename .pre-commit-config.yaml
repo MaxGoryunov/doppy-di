@@ -9,16 +9,15 @@ repos:
       - id: ruff-format
       - id: ruff
         args: [--fix]
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.16.1
+  - repo: local
     hooks:
       - id: mypy
-        additional_dependencies:
-          - pytest>=8.4
-          - fastapi
-          - aiogram
-          - typer
-        args: [--warn-unused-ignores]
+        name: mypy (project env, mirrors CI)
+        entry: uv run mypy
+        language: system
+        types_or: [python]
+        pass_filenames: false
+        require_serial: true
   - repo: https://github.com/commitizen-tools/commitizen
     rev: v4.8.3
     hooks:
