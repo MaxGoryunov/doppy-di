@@ -159,7 +159,8 @@ def apply_modules(
     for module in modules:
         configure = getattr(module, "configure", None)
         if inspect.isclass(module):
-            module().configure(binder)
+            instance = cast(Any, module)()
+            instance.configure(binder)
         elif configure is not None:
             configure(binder)
         else:
