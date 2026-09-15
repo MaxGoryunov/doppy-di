@@ -144,6 +144,34 @@ def _annotation_key(annotation: Any) -> Any:
     return annotation
 
 
+def _classify_param(
+    name: str,
+    param: inspect.Parameter,
+    markers: dict[str, _DependsMarker],
+    annotations: dict[str, Any],
+    injected: set[str],
+    external: set[str],
+    unannotated: set[str],
+) -> None:
+    """Classify ``param`` into the plan buckets (mutates the passed collections)."""
+    if isinstance(param.default, _ExternalMarker):
+        external.add(name)
+        if param.annotation is not inspect.Parameter.empty and param.annotation is not Any:
+            annotations[name] = param.annotation
+    elif isinstance(param.default, _DependsMarker):
+        markers[name] = param.default
+        injected.add(name)
+        if param.annotation is not inspect.Parameter.empty and param.annotation is not Any:
+            annotations[name] = param.annotation
+    elif param.default is not inspect.Parameter.empty:
+        return
+    elif param.annotation is not inspect.Parameter.empty:
+        annotations[name] = param.annotation
+        injected.add(name)
+    else:
+        unannotated.add(name)
+
+
 def _build_plan(func: Callable[..., Any]) -> _Plan:
     """Extract injection plan from function signature.
 
@@ -171,23 +199,45 @@ def _build_plan(func: Callable[..., Any]) -> _Plan:
             continue
         if isinstance(param.default, _PassthroughMarker):
             continue
-        if isinstance(param.default, _ExternalMarker):
-            external.add(name)
-            if param.annotation is not inspect.Parameter.empty and param.annotation is not Any:
-                annotations[name] = param.annotation
-        elif isinstance(param.default, _DependsMarker):
-            markers[name] = param.default
-            injected.add(name)
-            if param.annotation is not inspect.Parameter.empty and param.annotation is not Any:
-                annotations[name] = param.annotation
-        elif param.default is not inspect.Parameter.empty:
-            continue
-        elif param.annotation is not inspect.Parameter.empty:
-            annotations[name] = param.annotation
-            injected.add(name)
-        else:
-            unannotated.add(name)
+        _classify_param(name, param, markers, annotations, injected, external, unannotated)
     return markers, annotations, injected, external, unannotated
+
+
+def _resolve_annotated(
+    resolver: Any,
+    name: str,
+    annotations: dict[str, Any],
+    func: Callable[..., Any],
+) -> Any:
+    """Resolve ``name`` by annotation, raising structured errors on failure."""
+    annotation = annotations.get(name)
+    if annotation is None:
+        raise MissingAnnotationError(type(func), name)
+    try:
+        return resolver.get(_annotation_key(annotation))
+    except Exception as exc:
+        raise UnresolvableDependencyError(type(func), annotation) from exc
+
+
+def _resolve_typed(
+    resolver: Any,
+    dep: type,
+    func: Callable[..., Any],
+) -> Any:
+    """Resolve a dependency by type, raising structured errors on failure."""
+    try:
+        return resolver.get(dep)
+    except Exception as exc:
+        raise UnresolvableDependencyError(type(func), dep) from exc
+
+
+def _validate_unannotated(
+    func: Callable[..., Any], bound: inspect.BoundArguments, unannotated: set[str]
+) -> None:
+    """Raise when an unannotated parameter has no supplied value."""
+    for name in unannotated:
+        if name not in bound.arguments:
+            raise MissingAnnotationError(type(func), name)
 
 
 def _resolve_all(
@@ -201,10 +251,9 @@ def _resolve_all(
     unannotated: set[str],
 ) -> dict[str, Any]:
     """Resolve all missing injected arguments for a sync call."""
+    _ = external
+    _validate_unannotated(func, bound, unannotated)
     resolved: dict[str, Any] = {}
-    for name in unannotated:
-        if name not in bound.arguments:
-            raise MissingAnnotationError(type(func), name)
     for name in injected:
         if name in bound.arguments:
             continue
@@ -212,28 +261,13 @@ def _resolve_all(
         if marker is not None:
             dep = marker.dependency
             if dep is None:
-                annotation = annotations.get(name)
-                if annotation is None:
-                    raise MissingAnnotationError(type(func), name)
-                try:
-                    resolved[name] = resolver.get(_annotation_key(annotation))
-                except Exception as exc:
-                    raise UnresolvableDependencyError(type(func), annotation) from exc
+                resolved[name] = _resolve_annotated(resolver, name, annotations, func)
             elif isinstance(dep, type):
-                try:
-                    resolved[name] = resolver.get(dep)
-                except Exception as exc:
-                    raise UnresolvableDependencyError(type(func), dep) from exc
+                resolved[name] = _resolve_typed(resolver, dep, func)
             else:
                 resolved[name] = dep()
         else:
-            annotation = annotations.get(name)
-            if annotation is None:
-                raise MissingAnnotationError(type(func), name)
-            try:
-                resolved[name] = resolver.get(_annotation_key(annotation))
-            except Exception as exc:
-                raise UnresolvableDependencyError(type(func), annotation) from exc
+            resolved[name] = _resolve_annotated(resolver, name, annotations, func)
     return resolved
 
 
@@ -248,40 +282,54 @@ async def _resolve_all_async(
     unannotated: set[str],
 ) -> dict[str, Any]:
     """Resolve all missing injected arguments for an async call."""
-    resolved: dict[str, Any] = {}
-    for name in unannotated:
-        if name not in bound.arguments:
-            raise MissingAnnotationError(type(func), name)
-    for name in injected:
-        if name in bound.arguments:
-            continue
+    _ = external
+    _validate_unannotated(func, bound, unannotated)
+
+    async def _resolve_one_async(name: str) -> Any:
         marker = markers.get(name)
         if marker is not None:
             dep = marker.dependency
             if dep is None:
-                annotation = annotations.get(name)
-                if annotation is None:
-                    raise MissingAnnotationError(type(func), name)
-                try:
-                    resolved[name] = await resolver.get(_annotation_key(annotation))
-                except Exception as exc:
-                    raise UnresolvableDependencyError(type(func), annotation) from exc
-            elif isinstance(dep, type):
-                try:
-                    resolved[name] = await resolver.get(dep)
-                except Exception as exc:
-                    raise UnresolvableDependencyError(type(func), dep) from exc
-            else:
-                resolved[name] = dep()
-        else:
-            annotation = annotations.get(name)
-            if annotation is None:
-                raise MissingAnnotationError(type(func), name)
-            try:
-                resolved[name] = await resolver.get(_annotation_key(annotation))
-            except Exception as exc:
-                raise UnresolvableDependencyError(type(func), annotation) from exc
+                return await _resolve_annotated_async(resolver, name, annotations, func)
+            if isinstance(dep, type):
+                return await _resolve_typed_async(resolver, dep, func)
+            return dep()
+        return await _resolve_annotated_async(resolver, name, annotations, func)
+
+    resolved: dict[str, Any] = {}
+    for name in injected:
+        if name in bound.arguments:
+            continue
+        resolved[name] = await _resolve_one_async(name)
     return resolved
+
+
+async def _resolve_annotated_async(
+    resolver: Any,
+    name: str,
+    annotations: dict[str, Any],
+    func: Callable[..., Any],
+) -> Any:
+    """Resolve ``name`` by annotation, raising structured errors on failure."""
+    annotation = annotations.get(name)
+    if annotation is None:
+        raise MissingAnnotationError(type(func), name)
+    try:
+        return await resolver.get(_annotation_key(annotation))
+    except Exception as exc:
+        raise UnresolvableDependencyError(type(func), annotation) from exc
+
+
+async def _resolve_typed_async(
+    resolver: Any,
+    dep: type,
+    func: Callable[..., Any],
+) -> Any:
+    """Resolve a dependency by type, raising structured errors on failure."""
+    try:
+        return await resolver.get(dep)
+    except Exception as exc:
+        raise UnresolvableDependencyError(type(func), dep) from exc
 
 
 def _validate_external(

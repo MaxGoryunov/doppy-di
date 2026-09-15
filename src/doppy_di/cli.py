@@ -12,16 +12,8 @@ import click
 from .container import Container, ContainerBuilder, DuplicateRegistrationError, Key
 
 
-def _load_container_or_builder(file_path: str) -> Any:
-    """Load container, builder, or build callable from file."""
-    path = Path(file_path).resolve()
-    if not path.exists():
-        click.echo(f"Error: File not found: {path}", err=True)
-        sys.exit(1)
-
-    sys.path.insert(0, str(path.parent))
-    module_name = path.stem
-
+def _import_module(path: Path, module_name: str) -> Any:
+    """Import ``path`` as a module, returning a ``DuplicateRegistrationError`` if raised."""
     try:
         spec = importlib.util.spec_from_file_location(module_name, str(path))
         if spec is None or spec.loader is None:
@@ -36,7 +28,11 @@ def _load_container_or_builder(file_path: str) -> Any:
             return exc
         click.echo(f"Error loading {path}: {exc}", err=True)
         sys.exit(1)
+    return module
 
+
+def _find_container(module: Any) -> Any:
+    """Return the container, builder, or build callable defined in ``module``."""
     for attr in ("container", "builder", "build"):
         if hasattr(module, attr):
             obj = getattr(module, attr)
@@ -46,10 +42,28 @@ def _load_container_or_builder(file_path: str) -> Any:
 
     # scan module for any Container or ContainerBuilder instances
     for _, value in list(module.__dict__.items()):
-        if isinstance(value, Container):
+        if isinstance(value, (Container, ContainerBuilder)):
             return value
-        if isinstance(value, ContainerBuilder):
-            return value
+
+    return None
+
+
+def _load_container_or_builder(file_path: str) -> Any:
+    """Load container, builder, or build callable from file."""
+    path = Path(file_path).resolve()
+    if not path.exists():
+        click.echo(f"Error: File not found: {path}", err=True)
+        sys.exit(1)
+
+    sys.path.insert(0, str(path.parent))
+    module_name = path.stem
+
+    module = _import_module(path, module_name)
+    if isinstance(module, DuplicateRegistrationError):
+        return module
+    obj = _find_container(module)
+    if obj is not None:
+        return obj
 
     click.echo(f"Error: No Container or ContainerBuilder found in {path}", err=True)
     sys.exit(1)
@@ -109,11 +123,7 @@ def explain(key: str, file_path: str) -> None:  # type: ignore[misc]
     g = container.graph()
 
     # Find the actual Key in graph that matches key string repr
-    matched_key: Key | None = None
-    for node in g.nodes():
-        if str(node) == key or repr(node) == key:
-            matched_key = node
-            break
+    matched_key = _match_node(g, key)
 
     if matched_key is None:
         click.echo(f"Key {key!r} not found in container.", err=True)
@@ -142,6 +152,132 @@ def explain(key: str, file_path: str) -> None:  # type: ignore[misc]
         click.echo("Dependents: none")
 
 
+def _match_node(g: Any, key: str) -> Any:
+    """Return the graph node matching ``key`` by ``str`` or ``repr``, or ``None``."""
+    for node in g.nodes():
+        if str(node) == key or repr(node) == key:
+            return node
+    return None
+
+
+def _collect_missing_deps(ruleset: Any) -> List[tuple[Key, Key]]:
+    """Return ``(key, dep)`` pairs whose dependency is unregistered."""
+    missing: List[tuple[Key, Key]] = []
+    for key, rule in ruleset.map.items():
+        for dep in rule.deps:
+            if dep not in ruleset.map:
+                missing.append((key, dep))
+    return missing
+
+
+def _cycle_path(exc: Exception) -> List[Key] | None:
+    """Extract a cycle path from a cycle exception, if present."""
+    # CycleError or DependencyCycleError path
+    path = getattr(exc, "path", None) or getattr(exc, "cycle", None)
+    if path:
+        return list(path)
+    return None
+
+
+def _collect_cycles(ruleset: Any) -> List[List[Key]]:
+    """Return dependency cycles discovered in ``ruleset``."""
+    cycles: List[List[Key]] = []
+    for key in ruleset.map:
+        try:
+            ruleset._check_cycle(key)
+        except Exception as exc:
+            path = _cycle_path(exc)
+            if path is not None and path not in cycles:
+                cycles.append(path)
+    return cycles
+
+
+def _reachable_from(ruleset: Any, matched_roots: Set[Key]) -> Set[Key]:
+    """BFS over ``ruleset.map`` starting from ``matched_roots``."""
+    reachable: Set[Key] = set()
+    queue = list(matched_roots)
+    while queue:
+        curr = queue.pop(0)
+        if curr in reachable:
+            continue
+        reachable.add(curr)
+        rule_obj = ruleset.map[curr]
+        if rule_obj:
+            for dep in rule_obj.deps:
+                if dep in ruleset.map and dep not in reachable:
+                    queue.append(dep)
+    return reachable
+
+
+def _collect_unused(g: Any, ruleset: Any, roots: List[str]) -> Set[Key]:
+    """Return registered keys not reachable from any of ``roots``."""
+    matched_roots: Set[Key] = set()
+    for root_str in roots:
+        node = _match_node(g, root_str)
+        if node is not None:
+            matched_roots.add(node)
+
+    return set(g.nodes()) - _reachable_from(ruleset, matched_roots)
+
+
+def _report_lifetime_violations(ruleset: Any) -> bool:
+    """Report singleton rules with local scopes. Returns ``True`` if found."""
+    found = False
+    for key, rule_obj in ruleset.map.items():
+        if rule_obj.lifetime == "singleton" and rule_obj.scope:
+            found = True
+            click.echo(
+                f"ERROR: Lifetime violation: Singleton {key!r} "
+                f"cannot have a local scope: {rule_obj.scope}",
+                err=True,
+            )
+    return found
+
+
+def _load_container_for_check(file: str) -> Any:
+    """Load the container for ``check``, exiting with an error message on failure."""
+    try:
+        obj = _load_container_or_builder(file)
+        return _get_container(obj)
+    except DuplicateRegistrationError as exc:
+        click.echo(f"ERROR: Duplicate Registration detected:\n{exc}", err=True)
+        sys.exit(1)
+    except Exception as exc:
+        click.echo(f"ERROR: Loading failed: {exc}", err=True)
+        sys.exit(1)
+
+
+def _report_missing(ruleset: Any) -> bool:
+    """Report unregistered dependencies. Returns ``True`` if any were found."""
+    found = False
+    for key, dep in _collect_missing_deps(ruleset):
+        found = True
+        click.echo(f"ERROR: Missing dependency: {key!r} depends on unregistered {dep!r}", err=True)
+    return found
+
+
+def _report_cycles(ruleset: Any) -> bool:
+    """Report dependency cycles. Returns ``True`` if any were found."""
+    found = False
+    for cyc in _collect_cycles(ruleset):
+        found = True
+        path_str = " -> ".join(map(repr, cyc))
+        click.echo(f"ERROR: Dependency cycle detected: {path_str}", err=True)
+    return found
+
+
+def _report_unused(g: Any, ruleset: Any, roots: List[str]) -> bool:
+    """Report registrations unreachable from ``roots``. Returns ``True`` if found."""
+    found = False
+    for key in sorted(_collect_unused(g, ruleset, roots), key=lambda k: str(k)):
+        found = True
+        click.echo(
+            f"WARNING: Unused registration: {key!r} is not reachable from any root",
+            err=True,
+        )
+    return found
+
+
 @cli.command()  # type: ignore[misc]
 @click.argument("file", type=click.Path(exists=True))  # type: ignore[misc]
 @click.option(  # type: ignore[misc]
@@ -152,56 +288,15 @@ def explain(key: str, file_path: str) -> None:  # type: ignore[misc]
 )
 def check(file: str, roots: List[str], strict: bool) -> None:  # type: ignore[misc]
     """Lint container configuration for issues."""
-    has_errors = False
-    has_warnings = False
-
-    # Check for duplicate registration errors caught during module import
-    try:
-        obj = _load_container_or_builder(file)
-        container = _get_container(obj)
-    except DuplicateRegistrationError as exc:
-        click.echo(f"ERROR: Duplicate Registration detected:\n{exc}", err=True)
-        sys.exit(1)
-    except Exception as exc:
-        click.echo(f"ERROR: Loading failed: {exc}", err=True)
-        sys.exit(1)
-
+    container = _load_container_for_check(file)
     ruleset = container.config.ruleset
     g = container.graph()
 
     # 1. Missing dependencies
-    missing: List[tuple[Key, Key]] = []
-    for key, rule in ruleset.map.items():
-        for dep in rule.deps:
-            if dep not in ruleset.map:
-                missing.append((key, dep))
-
-    # mypy fix for rule assignment below
-    from .container import Rule as ContainerRule
-
-    rule_obj: ContainerRule
-    if missing:
-        has_errors = True
-        for key, dep in missing:
-            click.echo(
-                f"ERROR: Missing dependency: {key!r} depends on unregistered {dep!r}", err=True
-            )
+    has_errors = _report_missing(ruleset)
 
     # 2. Cycles
-    cycles: List[List[Key]] = []
-    for key in ruleset.map:
-        try:
-            ruleset._check_cycle(key)
-        except Exception as exc:
-            # CycleError or DependencyCycleError path
-            path = getattr(exc, "path", None) or getattr(exc, "cycle", None)
-            if path and list(path) not in cycles:
-                cycles.append(list(path))
-    if cycles:
-        has_errors = True
-        for cyc in cycles:
-            path_str = " -> ".join(map(repr, cyc))
-            click.echo(f"ERROR: Dependency cycle detected: {path_str}", err=True)
+    has_errors = _report_cycles(ruleset) or has_errors
 
     # 3. Duplicate keys with track_sources
     # (Already handled by DuplicateRegistrationError above if FAIL policy is used,
@@ -209,46 +304,12 @@ def check(file: str, roots: List[str], strict: bool) -> None:  # type: ignore[mi
     # Actually, DuplicateRegistrationError was raised on load, which is sufficient.
 
     # 4. Unused registrations (reachability)
-    if roots:
-        # Convert root strings to matching Keys in container
-        matched_roots: Set[Key] = set()
-        for root_str in roots:
-            for node in g.nodes():
-                if str(node) == root_str or repr(node) == root_str:
-                    matched_roots.add(node)
-
-        # BFS to find reachable nodes
-        reachable: Set[Key] = set()
-        queue = list(matched_roots)
-        while queue:
-            curr = queue.pop(0)
-            if curr not in reachable:
-                reachable.add(curr)
-                rule_obj = ruleset.map[curr]
-                if rule_obj:
-                    for dep in rule_obj.deps:
-                        if dep in ruleset.map and dep not in reachable:
-                            queue.append(dep)
-
-        unused = set(g.nodes()) - reachable
-        if unused:
-            has_warnings = True
-            for key in sorted(unused, key=lambda k: str(k)):
-                click.echo(
-                    f"WARNING: Unused registration: {key!r} is not reachable from any root",
-                    err=True,
-                )
+    has_warnings = _report_unused(g, ruleset, list(roots)) if roots else False
 
     # 5. Lifetime violations
     # Check: singleton rule cannot be overridden by scoped dependency
-    for key, rule_obj in ruleset.map.items():
-        if rule_obj.lifetime == "singleton" and rule_obj.scope:
-            has_errors = True
-            click.echo(
-                f"ERROR: Lifetime violation: Singleton {key!r} "
-                f"cannot have a local scope: {rule_obj.scope}",
-                err=True,
-            )
+    if _report_lifetime_violations(ruleset):
+        has_errors = True
 
     if has_errors or (has_warnings and strict):
         sys.exit(1)

@@ -69,14 +69,13 @@ def _reachable(
     return seen
 
 
-def _topological(
+def _count_indegrees(
     graph: Mapping[Key, Rule],
-    keys: Iterable[Key],
-) -> List[Key]:
-    """Return ``keys`` in dependency order (dependencies first)."""
-    scope = list(keys)
-    indegree: Dict[Key, int] = dict.fromkeys(scope, 0)
-    dependents: Dict[Key, List[Key]] = {key: [] for key in scope}
+    scope: List[Key],
+    indegree: Dict[Key, int],
+    dependents: Dict[Key, List[Key]],
+) -> None:
+    """Fill ``indegree`` counts and ``dependents`` adjacency for ``scope``."""
     for key in scope:
         rule = graph.get(key)
         if rule is None:
@@ -85,6 +84,17 @@ def _topological(
             if dep in indegree:
                 indegree[key] += 1
                 dependents[dep].append(key)
+
+
+def _topological(
+    graph: Mapping[Key, Rule],
+    keys: Iterable[Key],
+) -> List[Key]:
+    """Return ``keys`` in dependency order (dependencies first)."""
+    scope = list(keys)
+    indegree: Dict[Key, int] = dict.fromkeys(scope, 0)
+    dependents: Dict[Key, List[Key]] = {key: [] for key in scope}
+    _count_indegrees(graph, scope, indegree, dependents)
 
     ready = [key for key in scope if indegree[key] == 0]
     order: List[Key] = []
@@ -120,6 +130,7 @@ class DefaultResolutionPolicy:
         graph: Mapping[Key, Rule],
         root: Key,
     ) -> Iterable[Key]:
+        _ = graph
         return (root,)
 
 
@@ -142,6 +153,7 @@ class LazyPolicy:
         graph: Mapping[Key, Rule],
         root: Key,
     ) -> Iterable[Key]:
+        _ = graph
         return (root,)
 
 
@@ -214,6 +226,7 @@ class EagerPolicy:
         graph: Mapping[Key, Rule],
         root: Key,
     ) -> Iterable[Key]:
+        _ = root
         return _topological(graph, graph.keys())
 
 

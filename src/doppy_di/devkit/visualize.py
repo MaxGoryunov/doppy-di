@@ -49,6 +49,61 @@ def build_model(ruleset: RuleSetProtocol) -> Dict[str, Dict[str, Any]]:
     return model
 
 
+def _pop_component(stack: List[Key], on_stack: Set[Key], root: Key) -> List[Key]:
+    """Pop one strongly connected component from ``stack`` up to ``root``."""
+    component: List[Key] = []
+    while True:
+        member = stack.pop()
+        on_stack.remove(member)
+        component.append(member)
+        if member == root:
+            break
+    return component
+
+
+def _record_component_edges(
+    ruleset: RuleSetProtocol, component: List[Key], edges: Set[Tuple[Key, Key]]
+) -> None:
+    """Add all intra-component edges of ``component`` to ``edges``."""
+    members = set(component)
+    for member in component:
+        for dep in ruleset.graph.get(member, ()):
+            if dep in members:
+                edges.add((member, dep))
+
+
+def _strongconnect(
+    node: Key,
+    ruleset: RuleSetProtocol,
+    index: Dict[Key, int],
+    lowlink: Dict[Key, int],
+    on_stack: Set[Key],
+    stack: List[Key],
+    counter: int,
+    edges: Set[Tuple[Key, Key]],
+) -> int:
+    """Run Tarjan's ``strongconnect`` for ``node``; returns the updated counter."""
+    index[node] = counter
+    lowlink[node] = counter
+    counter += 1
+    stack.append(node)
+    on_stack.add(node)
+    for dep in ruleset.graph.get(node, ()):
+        if dep not in ruleset.map:
+            continue
+        if dep not in index:
+            counter = _strongconnect(dep, ruleset, index, lowlink, on_stack, stack, counter, edges)
+            lowlink[node] = min(lowlink[node], lowlink[dep])
+        elif dep in on_stack:
+            lowlink[node] = min(lowlink[node], index[dep])
+
+    if lowlink[node] == index[node]:
+        component = _pop_component(stack, on_stack, node)
+        if len(component) > 1:
+            _record_component_edges(ruleset, component, edges)
+    return counter
+
+
 def _cycle_edges(ruleset: RuleSetProtocol) -> Set[Tuple[Key, Key]]:
     """Return the set of edges that participate in a dependency cycle."""
     index: Dict[Key, int] = {}
@@ -56,41 +111,11 @@ def _cycle_edges(ruleset: RuleSetProtocol) -> Set[Tuple[Key, Key]]:
     on_stack: Set[Key] = set()
     stack: List[Key] = []
     edges: Set[Tuple[Key, Key]] = set()
-    counter = [0]
-
-    def strongconnect(node: Key) -> None:
-        index[node] = counter[0]
-        lowlink[node] = counter[0]
-        counter[0] += 1
-        stack.append(node)
-        on_stack.add(node)
-        for dep in ruleset.graph.get(node, ()):
-            if dep not in ruleset.map:
-                continue
-            if dep not in index:
-                strongconnect(dep)
-                lowlink[node] = min(lowlink[node], lowlink[dep])
-            elif dep in on_stack:
-                lowlink[node] = min(lowlink[node], index[dep])
-
-        if lowlink[node] == index[node]:
-            component: List[Key] = []
-            while True:
-                member = stack.pop()
-                on_stack.remove(member)
-                component.append(member)
-                if member == node:
-                    break
-            if len(component) > 1:
-                members = set(component)
-                for member in component:
-                    for dep in ruleset.graph.get(member, ()):
-                        if dep in members:
-                            edges.add((member, dep))
+    counter = 0
 
     for key in ruleset.map:
         if key not in index:
-            strongconnect(key)
+            counter = _strongconnect(key, ruleset, index, lowlink, on_stack, stack, counter, edges)
     return edges
 
 
@@ -98,9 +123,9 @@ def _lifetime_class(lifetime: str) -> str:
     return "singleton" if lifetime == "singleton" else "transient"
 
 
-def render_mermaid(ruleset: RuleSetProtocol) -> str:
-    """Render the dependency graph as mermaid ``graph TD``."""
-    lines = ["graph TD"]
+def _mermaid_node_lines(ruleset: RuleSetProtocol) -> List[str]:
+    """Build the mermaid node declarations for ``ruleset``."""
+    lines: List[str] = []
     for key, rule in ruleset.map.items():
         label = _display(key)
         node_id = _safe_id(label)
@@ -108,50 +133,78 @@ def render_mermaid(ruleset: RuleSetProtocol) -> str:
             lines.append(f"    {node_id}([{label}]){_lifetime_class(rule.lifetime)}")
         else:
             lines.append(f"    {node_id}[{label}]{_lifetime_class(rule.lifetime)}")
-    lines.append("    classDef singleton fill:#90EE90,stroke:#333,stroke-width:1px;")
-    lines.append("    classDef transient fill:#ADD8E6,stroke:#333,stroke-width:1px;")
+    return lines
 
-    cyclic = _cycle_edges(ruleset)
+
+def _edge_lines(
+    ruleset: RuleSetProtocol,
+    cyclic: Set[Tuple[Key, Key]],
+    id_fn: Any,
+    cycle_line: Any,
+    plain_line: Any,
+) -> List[str]:
+    """Build deduplicated edge lines using ``id_fn`` and line formatters."""
+    lines: List[str] = []
     seen: Set[Tuple[str, str]] = set()
     for key, rule in ruleset.map.items():
-        src = _safe_id(_display(key))
+        src = id_fn(_display(key))
         for dep in rule.deps:
             if dep not in ruleset.map:
                 continue
-            dst = _safe_id(_display(dep))
+            dst = id_fn(_display(dep))
             if (src, dst) in seen:
                 continue
             seen.add((src, dst))
             if (key, dep) in cyclic:
-                lines.append(f"    {src} -->|{_display(dep)} [CYCLE]| {dst}")
+                lines.append(cycle_line(src, dst, _display(dep)))
             else:
-                lines.append(f"    {src} --> {dst}")
+                lines.append(plain_line(src, dst))
+    return lines
+
+
+def _mermaid_cycle_line(src: str, dst: str, label: str) -> str:
+    return f"    {src} -->|{label} [CYCLE]| {dst}"
+
+
+def _mermaid_plain_line(src: str, dst: str) -> str:
+    return f"    {src} --> {dst}"
+
+
+def _dot_cycle_line(src: str, dst: str, label: str) -> str:
+    return f'    "{src}" -> "{dst}" [label="[CYCLE]"];'
+
+
+def _dot_plain_line(src: str, dst: str) -> str:
+    return f'    "{src}" -> "{dst}";'
+
+
+def render_mermaid(ruleset: RuleSetProtocol) -> str:
+    """Render the dependency graph as mermaid ``graph TD``."""
+    lines = ["graph TD"]
+    lines.extend(_mermaid_node_lines(ruleset))
+    lines.append("    classDef singleton fill:#90EE90,stroke:#333,stroke-width:1px;")
+    lines.append("    classDef transient fill:#ADD8E6,stroke:#333,stroke-width:1px;")
+    cyclic = _cycle_edges(ruleset)
+    lines.extend(_edge_lines(ruleset, cyclic, _safe_id, _mermaid_cycle_line, _mermaid_plain_line))
     return "\n".join(lines)
+
+
+def _graphviz_node_lines(ruleset: RuleSetProtocol) -> List[str]:
+    """Build the Graphviz node declarations for ``ruleset``."""
+    lines: List[str] = []
+    for key, rule in ruleset.map.items():
+        label = _display(key)
+        shape = "stadium" if rule.scope else "box"
+        lines.append(f'    "{label}" [shape={shape}, color={_lifetime_class(rule.lifetime)}];')
+    return lines
 
 
 def render_graphviz(ruleset: RuleSetProtocol) -> str:
     """Render the dependency graph as Graphviz ``digraph``."""
     lines = ["digraph G {"]
-    for key, rule in ruleset.map.items():
-        label = _display(key)
-        shape = "stadium" if rule.scope else "box"
-        lines.append(f'    "{label}" [shape={shape}, color={_lifetime_class(rule.lifetime)}];')
-
+    lines.extend(_graphviz_node_lines(ruleset))
     cyclic = _cycle_edges(ruleset)
-    seen: Set[Tuple[str, str]] = set()
-    for key, rule in ruleset.map.items():
-        src = _display(key)
-        for dep in rule.deps:
-            if dep not in ruleset.map:
-                continue
-            dst = _display(dep)
-            if (src, dst) in seen:
-                continue
-            seen.add((src, dst))
-            if (key, dep) in cyclic:
-                lines.append(f'    "{src}" -> "{dst}" [label="[CYCLE]"];')
-            else:
-                lines.append(f'    "{src}" -> "{dst}";')
+    lines.extend(_edge_lines(ruleset, cyclic, _display, _dot_cycle_line, _dot_plain_line))
     lines.append("}")
     return "\n".join(lines)
 

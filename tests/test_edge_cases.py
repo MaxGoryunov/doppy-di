@@ -238,13 +238,16 @@ def test_unknown_lifetime_not_cached_for_value() -> None:
     """User manually creates Rule with bad lifetime string -> ValueError."""
     from doppy_di.container import Rule, RuleSet
 
-    rules = RuleSet()
     with pytest.raises(ValueError, match="Unknown lifetime"):
-        rules.add("x", Rule("x", lambda: object(), lifetime="bad_value"))
+        Rule("x", lambda: object(), lifetime="bad_value")
 
-    builder = ContainerBuilder()
     with pytest.raises(ValueError, match="Unknown lifetime"):
-        builder.rules.add("x", Rule("x", lambda: object(), lifetime="weird"))
+        Rule("x", lambda: object(), lifetime="weird")
+
+    # A valid rule still registers fine
+    rules = RuleSet()
+    rules.add("x", Rule("x", lambda: object()))
+    assert "x" in rules.map
 
 
 # ── H6: LoggingContainer catches BaseException ─────────────────────────
@@ -314,12 +317,9 @@ def test_nested_validation_chain_no_recursion() -> None:
     # Should resolve without RecursionError
     # validate_nested will fail because Node has no 'a' attr,
     # but that's a separate issue — we test no infinite loop
-    try:
+    # NestedRuleError expected; RecursionError would propagate and fail
+    with pytest.raises(NestedRuleError):
         container.get("root")
-    except RecursionError:
-        pytest.fail("Deep nested chain caused infinite recursion")
-    except NestedRuleError:
-        pass  # expected: Node has no 'a' attribute
 
 
 # ── H8: Partial state on cycle error ──────────────────────────────────
@@ -583,12 +583,10 @@ def test_children_first_policy_deep_nested_recursion() -> None:
 
     # If policy recurses infinitely, this raises RecursionError
     # If it works, it resolves fine
-    try:
-        a = container.get("a")
-        assert hasattr(a, "child")
-        assert a.child is None  # "b" was resolved but Deep.child is None
-    except RecursionError:
-        pytest.fail("ChildrenFirstPolicy caused infinite recursion with deep nested chain")
+    # RecursionError would propagate and fail the test naturally
+    a = container.get("a")
+    assert hasattr(a, "child")
+    assert a.child is None  # "b" was resolved but Deep.child is None
 
 
 def test_children_first_policy_self_referential() -> None:

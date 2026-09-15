@@ -529,9 +529,12 @@ class Selector(Provider):
         providers_map = dict(zip(labels, deps))
         has_context = self.context is not None
         if has_context:
-            assert self.context is not None
-            context_dep = _member_key(self.context)
-            assert context_dep is not None
+            context = self.context
+            if context is None:  # pragma: no cover - narrowing guard
+                raise AssertionError("context must not be None")
+            context_dep = _member_key(context)
+            if context_dep is None:  # pragma: no cover - narrowing guard
+                raise AssertionError("context_dep must not be None")
             deps.append(context_dep)
 
         def make(*args: Any) -> Any:
@@ -663,6 +666,27 @@ class DictOf(Provider):
         return [Rule(name, lambda *args: dict(zip(keys, args)), "transient", deps)]
 
 
+def _collect_dict_members(item: Any, ruleset: Any) -> List[Tuple[str, Key]]:
+    """Return registered ``(label, key)`` members for a ``Dict[str, T]`` annotation."""
+    members: List[Tuple[str, Key]] = []
+    for registered in ruleset.map:
+        if registered == item:
+            members.append((getattr(item, "__name__", str(item)), registered))
+        elif isinstance(registered, tuple) and len(registered) == 2 and registered[0] == item:
+            members.append((registered[1], registered))
+    return members
+
+
+def _collect_members(item: Any, ruleset: Any) -> List[Key]:
+    """Return registered keys that are members of a collection of ``item``."""
+    return [
+        registered
+        for registered in ruleset.map
+        if registered == item
+        or (isinstance(registered, tuple) and len(registered) == 2 and registered[0] == item)
+    ]
+
+
 def implicit_collection_rule(key: Any, ruleset: Any) -> Optional[Rule]:
     """Build a synthetic aggregate rule for ``List[T]``/``Set[T]``/``Dict[str, T]``.
 
@@ -679,12 +703,7 @@ def implicit_collection_rule(key: Any, ruleset: Any) -> Optional[Rule]:
         if len(args) != 2 or args[0] is not str:
             return None
         item = args[1]
-        members: List[Tuple[str, Key]] = []
-        for registered in ruleset.map:
-            if registered == item:
-                members.append((getattr(item, "__name__", str(item)), registered))
-            elif isinstance(registered, tuple) and len(registered) == 2 and registered[0] == item:
-                members.append((registered[1], registered))
+        members = _collect_dict_members(item, ruleset)
         if not members:
             return None
         names = [label for label, _ in members]
@@ -693,12 +712,7 @@ def implicit_collection_rule(key: Any, ruleset: Any) -> Optional[Rule]:
     item = args[0] if args else None
     if item is None:
         return None
-    deps = tuple(
-        registered
-        for registered in ruleset.map
-        if registered == item
-        or (isinstance(registered, tuple) and len(registered) == 2 and registered[0] == item)
-    )
+    deps = tuple(_collect_members(item, ruleset))
     if not deps:
         return None
     if origin is list:

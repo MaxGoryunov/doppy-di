@@ -235,8 +235,10 @@ def test_same_value_policy_with_broken_eq_strict() -> None:
             raise RuntimeError("eq broken")
 
     policy = SameValuePolicy(strict=True)
+    broken1 = Broken(1)
+    broken2 = Broken(1)
     with pytest.raises(RuntimeError, match="eq broken"):
-        policy.check(Broken(1), Broken(1))
+        policy.check(broken1, broken2)
 
 
 def test_same_value_policy_with_none() -> None:
@@ -285,12 +287,10 @@ def test_children_first_policy_deep_nested_recursion() -> None:
         None,
     )
 
-    try:
-        a = container.get("a")
-        assert hasattr(a, "child")
-        assert a.child is None
-    except RecursionError:
-        pytest.fail("ChildrenFirstPolicy caused infinite recursion with deep nested chain")
+    # RecursionError would propagate and fail the test naturally
+    a = container.get("a")
+    assert hasattr(a, "child")
+    assert a.child is None
 
 
 def test_children_first_policy_self_referential() -> None:

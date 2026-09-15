@@ -113,7 +113,11 @@ def _build_node_maker(
     resolver reads ``frozen[spec.key]`` directly with no lock.
     """
     make = spec.make
-    assert make is not None
+    if make is None:
+        raise InvalidFactoryError(spec.key, "no factory")
+
+    # Pre-defined so static analyzers see every name defined on all paths.
+    dep0 = dep1 = dep2 = cast(Callable[[], Any], None)
 
     if frozen is not None and spec.lifetime == "singleton":
         return lambda: frozen[spec.key]
@@ -396,6 +400,8 @@ def _emit_ref(j: int) -> _ArgExpr:
 
 def _emit_expr(make: Callable[..., Any], args: Tuple[_ArgExpr, ...]) -> _ArgExpr:
     """Build an expression closure invoking ``make`` over arg expressions."""
+    # Pre-defined so static analyzers see every name defined on all paths.
+    a0 = a1 = a2 = cast(_ArgExpr, None)
     k = len(args)
     if k == 0:
 
@@ -437,6 +443,8 @@ def _emit_generic_root(
     args: Tuple[_ArgExpr, ...],
 ) -> Callable[[], Any]:
     """Build a root closure evaluating the prelude once, then arg exprs."""
+    # Pre-defined so static analyzers see every name defined on all paths.
+    a0 = a1 = a2 = cast(_ArgExpr, None)
     k = len(args)
     if k == 0:
 
@@ -825,6 +833,7 @@ class LegacyExecutionPlan:
             start = time.perf_counter()
 
         resolved = [None] * (idx + 1)
+        _unset_local = _unset
         for i in range(idx + 1):
             spec = nodes[i]
             if self.frozen:
@@ -834,7 +843,7 @@ class LegacyExecutionPlan:
             else:
                 if override_layers:
                     overridden = container._resolve_override(spec.key)
-                    if overridden is not _unset:
+                    if overridden is not _unset_local:
                         resolved[i] = overridden
                         continue
                 if spec.lifetime == "singleton":

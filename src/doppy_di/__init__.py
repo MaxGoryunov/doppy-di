@@ -84,6 +84,10 @@ from .resolution import (
     ParentFirstPolicy as ResolutionParentFirstPolicy,
 )
 
+# Alias for the assisted-injection entry point; ``Assisted`` is the documented
+# public spelling (see ``__all__``).
+Assisted = assisted
+
 __all__ = [
     "Assisted",
     "AsyncConfiguration",
