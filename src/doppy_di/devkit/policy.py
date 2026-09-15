@@ -45,11 +45,13 @@ class UnorderedPolicy:
     """
 
     def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
+        _ = key, ruleset, ctx
         return None
 
     def after_resolve(
         self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
     ) -> None:
+        _ = key, obj, ruleset, ctx
         return None
 
 
@@ -71,6 +73,7 @@ class ChildrenFirstPolicy:
         object.__setattr__(self, "nested", dict(nested or {}))
 
     def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
+        _ = ruleset
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
             ctx.get(child_key)
@@ -78,6 +81,7 @@ class ChildrenFirstPolicy:
     def after_resolve(
         self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
     ) -> None:
+        _ = key, obj, ruleset, ctx
         return None
 
 
@@ -97,11 +101,13 @@ class ParentFirstPolicy:
         object.__setattr__(self, "nested", dict(nested or {}))
 
     def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
+        _ = key, ruleset, ctx
         return None
 
     def after_resolve(
         self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
     ) -> None:
+        _ = key, obj, ruleset, ctx
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
             ctx.get(child_key)

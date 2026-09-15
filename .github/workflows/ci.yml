@@ -14,12 +14,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.12"
 
@@ -29,7 +30,7 @@ jobs:
           enable-cache: true
 
       - name: Install deps
-        run: uv sync --extra dev --extra fastapi --extra aiogram --extra typer
+        run: uv sync --frozen --extra dev --extra fastapi --extra aiogram --extra typer
 
       - name: Ruff format
         run: uv run ruff format --check .
@@ -60,24 +61,24 @@ jobs:
           pip uninstall -y doppy-di
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
 
       - name: Install Node deps
-        run: npm install
+        run: npm ci
 
       - name: Commitlint (PR)
         if: github.event_name == 'pull_request'
         run: |
-          npx commitlint \
+          npx --no-install commitlint \
             --from ${{ github.event.pull_request.base.sha }} \
             --to ${{ github.event.pull_request.head.sha }}
 
       - name: Commitlint (Push)
         if: github.event_name == 'push'
         run: |
-          npx commitlint \
+          npx --no-install commitlint \
             --from HEAD~1 \
             --to HEAD
 
@@ -89,10 +90,12 @@ jobs:
         python-version: ["3.10", "3.11", "3.12"]
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -102,12 +105,26 @@ jobs:
           enable-cache: true
 
       - name: Install deps
-        run: uv sync --extra dev --extra fastapi --extra aiogram --extra typer
+        run: uv sync --frozen --extra dev --extra fastapi --extra aiogram --extra typer
 
       - name: Run tests
         run: uv run pytest --cov --cov-branch --cov-report=xml
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+
+  quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+
+      - name: Install Qlty CLI
+        uses: qltysh/qlty-action/install@08a0a862c159eae9b9003081da6663d96efef637 # v2.3.0
+
+      - name: Run analyzers
+        run: qlty check

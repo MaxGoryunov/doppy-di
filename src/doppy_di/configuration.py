@@ -27,7 +27,7 @@ __all__ = [
     "ConfigurationError",
 ]
 
-_ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+_ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}|\$([A-Za-z_]\w*)")
 
 
 class ConfigurationError(Exception):
@@ -141,11 +141,15 @@ class Configuration(Provider):
 
     def _load_settings(self, obj: Any) -> Dict[str, Any]:
         dump = getattr(obj, "model_dump", None)
+        values = None
         if callable(dump):
-            return cast("Dict[str, Any]", dump())
-        legacy = getattr(obj, "dict", None)
-        if callable(legacy):
-            return cast("Dict[str, Any]", legacy())
+            values = dump()
+        else:
+            legacy = getattr(obj, "dict", None)
+            if callable(legacy):
+                values = legacy()
+        if callable(dump) or callable(getattr(obj, "dict", None)):
+            return cast("Dict[str, Any]", values)
         return {key: value for key, value in vars(obj).items() if not key.startswith("_")}
 
     def _load_env_prefix(self, prefix: str) -> Dict[str, Any]:

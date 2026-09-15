@@ -81,10 +81,21 @@ class DependencyGraph:
         if not roots:
             roots = list(self.nodes())
 
-        for root in roots:
-            if root not in visited:
-                lines.append(f"{root!r}")
-                deps = self.dependencies_of(root)
-                for i, dep in enumerate(deps):
-                    draw(dep, "", i == len(deps) - 1)
+        self._draw_roots(lines, visited, draw, roots)
         return "\n".join(lines)
+
+    def _draw_roots(
+        self,
+        lines: List[str],
+        visited: Set[Key],
+        draw: Any,
+        roots: List[Key],
+    ) -> None:
+        """Draw each unvisited ``root`` and its dependency subtree."""
+        for root in roots:
+            if root in visited:
+                continue
+            lines.append(f"{root!r}")
+            deps = self.dependencies_of(root)
+            for i, dep in enumerate(deps):
+                draw(dep, "", i == len(deps) - 1)
