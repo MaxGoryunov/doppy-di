@@ -238,7 +238,9 @@ def test_same_value_policy_with_broken_eq_strict() -> None:
     broken1 = Broken(1)
     broken2 = Broken(1)
     with pytest.raises(RuntimeError, match="eq broken"):
-        policy.check(broken1, broken2)
+        policy.check(
+            broken1, broken2
+        )  # NOSONAR: S5778 FP — 'Broken(1)' ctors do not raise; only 'policy.check' does
 
 
 def test_same_value_policy_with_none() -> None:

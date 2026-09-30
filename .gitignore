@@ -233,3 +233,6 @@ __marimo__/
 
 #Ignore vscode AI rules
 .github\instructions\codacy.instructions.md
+
+# Local code-quality scratch output (.quality/*, collected by scripts/)
+.quality/

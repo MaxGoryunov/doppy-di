@@ -1,11 +1,13 @@
 """Tests for logging container layer."""
 
+import pytest
+
 from doppy_di.container import ContainerBuilder
 from doppy_di.devkit.logging import LoggingContainer
 
 
 def test_logging_get() -> None:
-    events = []
+    events: list[str] = []
 
     def log(msg: str) -> None:
         events.append(msg)
@@ -20,7 +22,7 @@ def test_logging_get() -> None:
 
 
 def test_logging_has() -> None:
-    events = []
+    events: list[str] = []
 
     def log(msg: str) -> None:
         events.append(msg)
@@ -35,7 +37,7 @@ def test_logging_has() -> None:
 
 
 def test_logging_scope() -> None:
-    events = []
+    events: list[str] = []
 
     def log(msg: str) -> None:
         events.append(msg)
@@ -51,20 +53,21 @@ def test_logging_scope() -> None:
 
 
 def test_logging_container_base_exception_not_caught() -> None:
-    events = []
+    events: list[str] = []
 
     def log(msg: str) -> None:
         events.append(msg)
 
+    def raise_system_exit() -> object:
+        raise SystemExit(1)
+
     builder = ContainerBuilder()
-    builder.service("x", lambda: (_ for _ in ()).throw(SystemExit(1)))
+    builder.service("x", raise_system_exit)
     base = builder.build()
 
     container = LoggingContainer(base, log)
 
-    import pytest
-
     with pytest.raises(SystemExit):
         container.get("x")
 
-    assert any("error" in e for e in events)
+    assert any("error" in event for event in events)

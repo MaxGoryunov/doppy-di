@@ -24,11 +24,22 @@ class OrderPolicy(Protocol):
         True
     """
 
-    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
+    def before_resolve(
+        self,
+        _key: Key,
+        _ruleset: RuleSetProtocol,
+        _ctx: ResolveContext,
+        # NOSONAR: S1172 FP protocol hook, signature fixed
+    ) -> None:
         """Run before object resolution."""
 
     def after_resolve(
-        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+        self,
+        _key: Key,
+        _obj: Any,
+        _ruleset: RuleSetProtocol,
+        _ctx: ResolveContext,
+        # NOSONAR: S1172 FP protocol hook, signature fixed
     ) -> None:
         """Run after object resolution."""
 
@@ -44,14 +55,25 @@ class UnorderedPolicy:
         >>> policy.before_resolve("x", None, ResolveContext(container))
     """
 
-    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
-        _ = key, ruleset, ctx
+    def before_resolve(
+        self,
+        _key: Key,
+        _ruleset: RuleSetProtocol,
+        _ctx: ResolveContext,
+        # NOSONAR: S1172 FP policy hook, signature fixed
+    ) -> None:
+        _ = _key, _ruleset, _ctx
         return None
 
     def after_resolve(
-        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+        self,
+        _key: Key,
+        _obj: Any,
+        _ruleset: RuleSetProtocol,
+        _ctx: ResolveContext,
+        # NOSONAR: S1172 FP policy hook, signature fixed
     ) -> None:
-        _ = key, obj, ruleset, ctx
+        _ = _key, _obj, _ruleset, _ctx
         return None
 
 
@@ -72,16 +94,27 @@ class ChildrenFirstPolicy:
     def __init__(self, nested: Optional[Dict[Key, List[str]]] = None) -> None:
         object.__setattr__(self, "nested", dict(nested or {}))
 
-    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
-        _ = ruleset
+    def before_resolve(
+        self,
+        key: Key,
+        _ruleset: RuleSetProtocol,
+        ctx: ResolveContext,
+        # NOSONAR: S1172 FP policy hook, signature fixed
+    ) -> None:
+        _ = _ruleset
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
             ctx.get(child_key)
 
     def after_resolve(
-        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+        self,
+        _key: Key,
+        _obj: Any,
+        _ruleset: RuleSetProtocol,
+        _ctx: ResolveContext,
+        # NOSONAR: S1172 FP policy hook, signature fixed
     ) -> None:
-        _ = key, obj, ruleset, ctx
+        _ = _key, _obj, _ruleset, _ctx
         return None
 
 
@@ -100,14 +133,25 @@ class ParentFirstPolicy:
     def __init__(self, nested: Optional[Dict[Key, List[str]]] = None) -> None:
         object.__setattr__(self, "nested", dict(nested or {}))
 
-    def before_resolve(self, key: Key, ruleset: RuleSetProtocol, ctx: ResolveContext) -> None:
-        _ = key, ruleset, ctx
+    def before_resolve(
+        self,
+        _key: Key,
+        _ruleset: RuleSetProtocol,
+        _ctx: ResolveContext,
+        # NOSONAR: S1172 FP policy hook, signature fixed
+    ) -> None:
+        _ = _key, _ruleset, _ctx
         return None
 
     def after_resolve(
-        self, key: Key, obj: Any, ruleset: RuleSetProtocol, ctx: ResolveContext
+        self,
+        key: Key,
+        _obj: Any,
+        _ruleset: RuleSetProtocol,
+        ctx: ResolveContext,
+        # NOSONAR: S1172 FP policy hook, signature fixed
     ) -> None:
-        _ = key, obj, ruleset, ctx
+        _ = _obj, _ruleset
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
             ctx.get(child_key)

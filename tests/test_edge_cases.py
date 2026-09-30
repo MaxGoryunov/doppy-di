@@ -229,25 +229,35 @@ def test_override_unresolved_singleton_then_get_after_exit() -> None:
 
 
 def test_unknown_lifetime_not_cached() -> None:
+    def factory() -> object:
+        return object()
+
     builder = ContainerBuilder()
     with pytest.raises(ValueError, match="Unknown lifetime"):
-        builder.service("x", lambda: object(), lifetime="per_request")
+        builder.service(
+            "x", factory, lifetime="per_request"
+        )  # NOSONAR: S5778 FP — 'factory' defined on line above does not raise; only 'service' does
 
 
 def test_unknown_lifetime_not_cached_for_value() -> None:
     """User manually creates Rule with bad lifetime string -> ValueError."""
     from doppy_di.container import Rule, RuleSet
 
-    with pytest.raises(ValueError, match="Unknown lifetime"):
-        Rule("x", lambda: object(), lifetime="bad_value")
+    def factory() -> object:
+        return object()
 
-    with pytest.raises(ValueError, match="Unknown lifetime"):
-        Rule("x", lambda: object(), lifetime="weird")
+    for bad_lifetime in ("bad_value", "weird"):
+        with pytest.raises(ValueError, match="Unknown lifetime"):
+            Rule(
+                "x", factory, lifetime=bad_lifetime
+            )  # NOSONAR: S5778 FP — parametrized loop, single raising call per iteration
 
     # A valid rule still registers fine
     rules = RuleSet()
     rules.add("x", Rule("x", lambda: object()))
-    assert "x" in rules.map
+    assert (
+        "x" in rules.map
+    )  # NOSONAR: S7500 FP — asserting registration side effect, element access needed
 
 
 # ── H6: LoggingContainer catches BaseException ─────────────────────────
@@ -257,8 +267,11 @@ def test_logging_container_base_exception_not_caught() -> None:
     """LoggingContainer.get() wraps in except Exception — does NOT catch
     BaseException subclasses like KeyboardInterrupt, SystemExit."""
 
+    def raise_system_exit() -> object:
+        raise SystemExit(1)
+
     builder = ContainerBuilder()
-    builder.service("x", lambda: (_ for _ in ()).throw(SystemExit(1)))
+    builder.service("x", raise_system_exit)
     base = builder.build()
 
     events: List[str] = []
@@ -272,7 +285,7 @@ def test_logging_container_base_exception_not_caught() -> None:
         container.get("x")
 
     # SystemExit is not Exception, so log should NOT contain error message
-    assert any("error" in e for e in events)
+    assert any("error" in event for event in events)
 
 
 # ── H7: Nested validation re-enters parent ────────────────────────────
@@ -318,6 +331,7 @@ def test_nested_validation_chain_no_recursion() -> None:
     # validate_nested will fail because Node has no 'a' attr,
     # but that's a separate issue — we test no infinite loop
     # NestedRuleError expected; RecursionError would propagate and fail
+    # NOSONAR S5778 FP: container.get is the only raising call here.
     with pytest.raises(NestedRuleError):
         container.get("root")
 
@@ -332,8 +346,9 @@ def test_cycle_error_leaves_partial_state() -> None:
     rules.add("a", Rule("a", lambda: 1))
 
     rules.add("b", Rule("b", lambda a: a, deps=("a",)))
+    cyclic = Rule("a", lambda b: b, deps=("b",))
     with pytest.raises(CycleError):
-        rules.add("a", Rule("a", lambda b: b, deps=("b",)))
+        rules.add("a", cyclic)
 
     # After cycle error from adding 'a' again, both 'a' and 'b' may
     # linger in map/graph despite invalid state
@@ -408,8 +423,8 @@ def test_singleton_thread_safety_race() -> None:
         barrier.wait()
         try:
             results.append(container.get("x"))
-        except Exception as e:
-            errors.append(e)
+        except Exception as exc:
+            errors.append(exc)
 
     threads = [threading.Thread(target=get_x) for _ in range(10)]
     for t in threads:
@@ -456,8 +471,8 @@ def test_singleton_with_dep_thread_safety() -> None:
         barrier.wait()
         try:
             results.append(container.get("x"))
-        except Exception as e:
-            errors.append(e)
+        except Exception as exc:
+            errors.append(exc)
 
     threads = [threading.Thread(target=get_x) for _ in range(10)]
     for t in threads:
@@ -502,8 +517,8 @@ def test_singleton_with_transient_dep_thread_safety() -> None:
         barrier.wait()
         try:
             results.append(container.get("x"))
-        except Exception as e:
-            errors.append(e)
+        except Exception as exc:
+            errors.append(exc)
 
     threads = [threading.Thread(target=get_x) for _ in range(10)]
     for t in threads:

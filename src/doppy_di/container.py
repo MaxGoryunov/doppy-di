@@ -35,6 +35,7 @@ from typing import (
     Callable,
     ClassVar,
     Dict,
+    Iterable,
     List,
     Optional,
     ParamSpec,
@@ -60,6 +61,11 @@ _RESOLUTION_PATH: ContextVar[Optional[List[Key]]] = ContextVar("path", default=N
 _ACTIVE_REQUEST_RESOLVER: ContextVar[Optional[object]] = ContextVar(
     "active_request_resolver", default=None
 )
+
+
+_GENERATOR_DIDNT_YIELD = "didn't yield"
+_YIELD_FINALIZE_ERROR = "Error finalizing yield provider %r"
+_DUPLICATE_KEY_OVERWRITTEN = "Duplicate key %r registered; overwriting"
 
 
 class KeyProtocol(Protocol):
@@ -1060,6 +1066,30 @@ class ResolveContext:
 _unset = object()
 
 
+def _factory_arity(make: Any) -> Optional[Tuple[int, int, bool]]:
+    """Return ``(required, total, has_varargs)`` for ``make``, if inspectable.
+
+    ``None`` means the callable has no introspectable signature, so arity
+    cannot be validated.
+    """
+    try:
+        sig = inspect.signature(make)
+    except (TypeError, ValueError):
+        return None
+    positional = [
+        p
+        for p in sig.parameters.values()
+        if p.kind
+        in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        )
+    ]
+    required = sum(1 for p in positional if p.default is inspect.Parameter.empty)
+    has_varargs = any(p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values())
+    return required, len(positional), has_varargs
+
+
 class OverrideLayer:
     """Temporary stack-local override layer.
 
@@ -1288,7 +1318,7 @@ class Scope:
             try:
                 obj = stack.enter_context(contextmanager(rule.make)())
             except RuntimeError as exc:
-                if "didn't yield" in str(exc):
+                if _GENERATOR_DIDNT_YIELD in str(exc):
                     raise YieldNotCalledError(key) from None
                 raise
             if started:
@@ -1326,7 +1356,7 @@ class Scope:
                     if self.container.config.finalization_errors:
                         errors.append((key, exc))
                     else:
-                        logger.exception("Error finalizing yield provider %r", key)
+                        logger.exception(_YIELD_FINALIZE_ERROR, key)
             self._exit_stack.clear()
             if errors:
                 raise ResourceFinalizationError(errors)
@@ -1363,26 +1393,30 @@ class AsyncScope(Scope):
             self.cache[key] = obj
             return obj
         if rule.async_yield_provider:
-            started = self.container._tracer is not None
-            start = time.perf_counter() if started else 0.0
-            stack = AsyncExitStack()
-            try:
-                obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
-            except RuntimeError as exc:
-                if "didn't yield" in str(exc):
-                    raise YieldNotCalledError(key) from None
-                raise
-            if started:
-                self.container._trace(key, time.perf_counter() - start, False, self.name)
-            self._async_exit_stack.append((key, stack))
-            self.cache[key] = obj
-            return obj
+            return await self._resolve_async_yield(key, rule)
         if rule.yield_provider:
             raise TypeError(f"Sync yield provider {key!r} cannot be resolved in async scope")
         if rule.is_async:
             obj = await self.container.aget(key, _scope_name=self.name)
         else:
             obj = self.container.get(key, _scope_name=self.name)
+        self.cache[key] = obj
+        return obj
+
+    async def _resolve_async_yield(self, key: Key, rule: Any) -> Any:
+        """Create an async yield provider inside this scope's exit stack."""
+        started = self.container._tracer is not None
+        start = time.perf_counter() if started else 0.0
+        stack = AsyncExitStack()
+        try:
+            obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
+        except RuntimeError as exc:
+            if _GENERATOR_DIDNT_YIELD in str(exc):
+                raise YieldNotCalledError(key) from None
+            raise
+        if started:
+            self.container._trace(key, time.perf_counter() - start, False, self.name)
+        self._async_exit_stack.append((key, stack))
         self.cache[key] = obj
         return obj
 
@@ -1412,7 +1446,7 @@ class AsyncScope(Scope):
                     if self.container.config.finalization_errors:
                         errors.append((key, exc))
                     else:
-                        logger.exception("Error finalizing yield provider %r", key)
+                        logger.exception(_YIELD_FINALIZE_ERROR, key)
             self._async_exit_stack.clear()
             if errors:
                 raise ResourceFinalizationError(errors)
@@ -1536,18 +1570,25 @@ class Container:
         try:
             if isinstance(policy, ParallelPolicy):
                 for level in self._independent_levels(order):
-                    for key in level:
-                        if key not in self.single and key not in cache:
-                            cache[key] = self.get(key, _scope_name=_scope_name)
+                    self._resolve_missing(level, cache, _scope_name)
             else:
-                for key in order:
-                    if key not in self.single and key not in cache:
-                        cache[key] = self.get(key, _scope_name=_scope_name)
+                self._resolve_missing(order, cache, _scope_name)
             if lookup in cache:
                 return cache[lookup]
             return self.get(lookup, _scope_name=_scope_name)
         finally:
             self._policy_depth -= 1
+
+    def _resolve_missing(
+        self,
+        keys: Iterable[Key],
+        cache: Dict[Key, Any],
+        _scope_name: Optional[str],
+    ) -> None:
+        """Resolve every key not already cached, storing results in ``cache``."""
+        for key in keys:
+            if key not in self.single and key not in cache:
+                cache[key] = self.get(key, _scope_name=_scope_name)
 
     async def _resolve_with_policy_async(
         self,
@@ -1566,23 +1607,9 @@ class Container:
         try:
             if isinstance(policy, ParallelPolicy):
                 for level in self._independent_levels(order):
-                    for key in level:
-                        if key not in self.single and key not in cache:
-                            cache[key] = await self.aget(
-                                key,
-                                _stacks=_stacks,
-                                _scope_name=_scope_name,
-                                _path=_path,
-                            )
+                    await self._resolve_missing_async(level, cache, _stacks, _scope_name, _path)
             else:
-                for key in order:
-                    if key not in self.single and key not in cache:
-                        cache[key] = await self.aget(
-                            key,
-                            _stacks=_stacks,
-                            _scope_name=_scope_name,
-                            _path=_path,
-                        )
+                await self._resolve_missing_async(order, cache, _stacks, _scope_name, _path)
             if lookup in cache:
                 return cache[lookup]
             return await self.aget(
@@ -1593,6 +1620,24 @@ class Container:
             )
         finally:
             self._policy_depth -= 1
+
+    async def _resolve_missing_async(
+        self,
+        keys: Iterable[Key],
+        cache: Dict[Key, Any],
+        _stacks: Optional[List[AsyncExitStack]],
+        _scope_name: Optional[str],
+        _path: Optional[List[Key]],
+    ) -> None:
+        """Asynchronously resolve every key not already cached."""
+        for key in keys:
+            if key not in self.single and key not in cache:
+                cache[key] = await self.aget(
+                    key,
+                    _stacks=_stacks,
+                    _scope_name=_scope_name,
+                    _path=_path,
+                )
 
     def __setattr__(self, name: str, value: Any) -> None:
         if hasattr(value, "to_rules"):
@@ -1696,116 +1741,305 @@ class Container:
             return self._resolve_with_policy(lookup, active, _scope_name)
         started = self._tracer is not None
         start = time.perf_counter() if started else 0.0
-        if self._override_layers:
-            overridden = self._resolve_override(lookup)
-            if overridden is not _unset:
-                if started:
-                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
-                return overridden
+        hit, overridden = self._override_hit(lookup)
+        if hit:
+            return self._override_result(lookup, overridden, started, start, _scope_name)
         if lookup in self.single:
-            if started:
-                self._trace(lookup, time.perf_counter() - start, True, _scope_name)
+            self._trace_hit(lookup, started, start, _scope_name)
             return self.single[lookup]
 
         path = self._enter_path(lookup)
         try:
-            if len(path) > 1 and lookup in path[:-1]:
-                idx = path.index(lookup)
-                raise DependencyCycleError(path[idx:])
+            self._check_path_cycle(path, lookup)
 
             with self.lock:
                 if lookup in self.single:
-                    if started:
-                        self._trace(lookup, time.perf_counter() - start, True, _scope_name)
+                    self._trace_hit(lookup, started, start, _scope_name)
                     return self.single[lookup]
 
-                try:
-                    rule = self.config.ruleset.find(lookup)
-                except ServiceNotFoundError:
-                    from .providers import implicit_collection_rule
-
-                    collection = implicit_collection_rule(lookup, self.config.ruleset)
-                    if collection is not None:
-                        rule = collection
-                    elif self._is_injectable_key(lookup):
-                        from .auto_wiring import _rule_for
-
-                        self.config.ruleset.add(lookup, _rule_for(lookup))
-                        rule = self.config.ruleset.find(lookup)
-                    elif qualifier is not None:
-                        raise UnregisteredDependencyError(key, qualifier) from None
-                    elif len(path) > 1:
-                        src = self.config.ruleset.map.get(
-                            lookup, Rule(lookup, lambda: None)
-                        ).registration_source
-                        raise MissingDependencyError(
-                            lookup,
-                            path.copy(),
-                            scope=_scope_name,
-                            registration_source=src,
-                        ) from None
-                    else:
-                        raise
+                rule = self._find_rule(lookup, key, qualifier, path, _scope_name)
                 if rule.async_yield_provider:
                     raise TypeError(f"Async yield provider {lookup!r} requires async scope")
                 if rule.is_async:
                     raise AsyncDependencyInSyncContextError(lookup)
-                ctx = ResolveContext(self)
-                try:
-                    args = [ctx.get(dep, _scope_name=_scope_name) for dep in rule.deps]
-                except ServiceNotFoundError as exc:
-                    if self._is_injectable_key(lookup):
-                        from .auto_wiring import UnresolvableDependencyError
-
-                        raise UnresolvableDependencyError(lookup, exc.key) from None
-                    if isinstance(exc, MissingDependencyError):
-                        if exc.registration_source is not None:
-                            raise
-                        src = self.config.ruleset.map.get(
-                            lookup, Rule(lookup, lambda: None)
-                        ).registration_source
-                        if src is None:
-                            raise
-                        raise MissingDependencyError(
-                            exc.key,
-                            exc.resolution_path,
-                            scope=exc.scope or _scope_name,
-                            registration_source=src,
-                        ) from None
-                    if len(path) > 1:
-                        src = self.config.ruleset.map.get(
-                            lookup, Rule(lookup, lambda: None)
-                        ).registration_source
-                        raise MissingDependencyError(
-                            exc.key,
-                            path.copy(),
-                            scope=_scope_name,
-                            registration_source=src,
-                        ) from None
-                    raise
-                try:
-                    obj = rule.make(*args)
-                except Exception as exc:
-                    if self.config.wrap_factory_errors:
-                        raise FactoryExecutionError(
-                            lookup,
-                            exc,
-                            path.copy(),
-                        ) from exc
-                    raise
+                args = self._resolve_sync_deps(lookup, rule, path, _scope_name)
+                obj = self._call_factory(lookup, rule, args, path)
                 if inspect.isawaitable(obj):
                     raise SyncFactoryReturningAwaitableError(lookup)
-
-                if rule.lifetime == "singleton":
-                    self.single[lookup] = obj
-                self._cache_nested_aliases(lookup, obj)
-
-                if started:
-                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
-
-                return obj
+                return self._store_result(lookup, rule, obj, started, start, _scope_name)
         finally:
             path.pop()
+
+    def _override_hit(self, lookup: Key) -> Tuple[bool, Any]:
+        """Return ``(True, value)`` when an override layer provides ``lookup``."""
+        if not self._override_layers:
+            return False, None
+        overridden = self._resolve_override(lookup)
+        if overridden is _unset:
+            return False, None
+        return True, overridden
+
+    def _override_result(
+        self,
+        lookup: Key,
+        value: Any,
+        started: bool,
+        start: float,
+        _scope_name: Optional[str],
+    ) -> Any:
+        """Trace an override hit and return the overriding value."""
+        if started:
+            self._trace(lookup, time.perf_counter() - start, False, _scope_name)
+        return value
+
+    def _trace_hit(
+        self,
+        lookup: Key,
+        started: bool,
+        start: float,
+        scope: Optional[str],
+    ) -> None:
+        """Record a singleton cache-hit trace event when tracing is active."""
+        if started:
+            self._trace(lookup, time.perf_counter() - start, True, scope)
+
+    def _check_path_cycle(self, path: List[Key], lookup: Key) -> None:
+        """Raise :class:`DependencyCycleError` when ``lookup`` repeats in ``path``."""
+        if len(path) > 1 and lookup in path[:-1]:
+            idx = path.index(lookup)
+            raise DependencyCycleError(path[idx:])
+
+    def _find_rule(
+        self,
+        lookup: Key,
+        key: Key,
+        qualifier: Optional[str],
+        path: List[Key],
+        _scope_name: Optional[str],
+    ) -> Rule:
+        """Return the rule for ``lookup``, auto-registering where possible."""
+        try:
+            return self.config.ruleset.find(lookup)
+        except ServiceNotFoundError:
+            from .providers import implicit_collection_rule
+
+            collection = implicit_collection_rule(lookup, self.config.ruleset)
+            if collection is not None:
+                return collection
+            if self._is_injectable_key(lookup):
+                from .auto_wiring import _rule_for
+
+                self.config.ruleset.add(lookup, _rule_for(lookup))
+                return self.config.ruleset.find(lookup)
+            if qualifier is not None:
+                raise UnregisteredDependencyError(key, qualifier) from None
+            if len(path) > 1:
+                raise MissingDependencyError(
+                    lookup,
+                    path.copy(),
+                    scope=_scope_name,
+                    registration_source=self._registration_source(lookup),
+                ) from None
+            raise
+
+    def _registration_source(self, lookup: Key) -> Any:
+        """Return the registration source recorded for ``lookup``, if any."""
+        rule = self.config.ruleset.map.get(lookup)
+        return None if rule is None else rule.registration_source
+
+    def _dependency_error(
+        self,
+        lookup: Key,
+        exc: ServiceNotFoundError,
+        path: List[Key],
+        _scope_name: Optional[str],
+    ) -> Optional[BaseException]:
+        """Return the public error for a failed dependency resolution.
+
+        ``None`` means the original error must be re-raised unchanged.
+        """
+        if self._is_injectable_key(lookup):
+            from .auto_wiring import UnresolvableDependencyError
+
+            return UnresolvableDependencyError(lookup, exc.key)
+        if isinstance(exc, MissingDependencyError):
+            return self._missing_dependency_error(lookup, exc, _scope_name)
+        if len(path) > 1:
+            return MissingDependencyError(
+                exc.key,
+                path.copy(),
+                scope=_scope_name,
+                registration_source=self._registration_source(lookup),
+            )
+        return None
+
+    def _missing_dependency_error(
+        self,
+        lookup: Key,
+        exc: MissingDependencyError,
+        _scope_name: Optional[str],
+    ) -> Optional[BaseException]:
+        """Return an enriched missing-dependency error, else ``None`` to re-raise."""
+        if exc.registration_source is not None:
+            return None
+        src = self._registration_source(lookup)
+        if src is None:
+            return None
+        return MissingDependencyError(
+            exc.key,
+            exc.resolution_path,
+            scope=exc.scope or _scope_name,
+            registration_source=src,
+        )
+
+    def _resolve_sync_deps(
+        self,
+        lookup: Key,
+        rule: Rule,
+        path: List[Key],
+        _scope_name: Optional[str],
+    ) -> List[Any]:
+        """Resolve every declared dependency of ``rule`` synchronously."""
+        ctx = ResolveContext(self)
+        try:
+            return [ctx.get(dep, _scope_name=_scope_name) for dep in rule.deps]
+        except ServiceNotFoundError as exc:
+            error = self._dependency_error(lookup, exc, path, _scope_name)
+            if error is None:
+                raise
+            raise error from None
+
+    def _call_factory(self, lookup: Key, rule: Rule, args: List[Any], path: List[Key]) -> Any:
+        """Call ``rule.make``, wrapping failures when configured."""
+        try:
+            return rule.make(*args)
+        except Exception as exc:
+            if self.config.wrap_factory_errors:
+                raise FactoryExecutionError(lookup, exc, path.copy()) from exc
+            raise
+
+    def _store_result(
+        self,
+        lookup: Key,
+        rule: Rule,
+        obj: Any,
+        started: bool,
+        start: float,
+        _scope_name: Optional[str],
+    ) -> Any:
+        """Cache a resolved object, record nested aliases and return it."""
+        if rule.lifetime == "singleton":
+            self.single[lookup] = obj
+        self._cache_nested_aliases(lookup, obj)
+        if started:
+            self._trace(lookup, time.perf_counter() - start, False, _scope_name)
+        return obj
+
+    async def _resolve_async_body(
+        self,
+        lookup: Key,
+        rule: Rule,
+        stacks: List[AsyncExitStack],
+        started: bool,
+        start: float,
+        _scope_name: Optional[str],
+        path: List[Key],
+    ) -> Any:
+        """Build ``lookup`` asynchronously: yield providers, deps, factory."""
+        if rule.async_yield_provider:
+            return await self._run_async_yield(lookup, rule, stacks, started, start, _scope_name)
+        if rule.yield_provider:
+            raise TypeError(f"Sync yield provider {lookup!r} cannot be resolved via aget")
+        args = await self._resolve_async_deps(lookup, rule, stacks, _scope_name, path)
+        obj = self._call_factory(lookup, rule, args, path)
+        obj = await self._await_factory_result(lookup, rule, obj, path)
+        return self._store_result(lookup, rule, obj, started, start, _scope_name)
+
+    async def _run_async_yield(
+        self,
+        lookup: Key,
+        rule: Rule,
+        stacks: List[AsyncExitStack],
+        started: bool,
+        start: float,
+        _scope_name: Optional[str],
+    ) -> Any:
+        """Enter an async yield provider and register it for finalization."""
+        stack = AsyncExitStack()
+        stacks.append(stack)
+        try:
+            obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
+        except RuntimeError as exc:
+            if _GENERATOR_DIDNT_YIELD in str(exc):
+                raise YieldNotCalledError(lookup) from None
+            raise
+        return self._store_result(lookup, rule, obj, started, start, _scope_name)
+
+    async def _resolve_async_deps(
+        self,
+        lookup: Key,
+        rule: Rule,
+        stacks: List[AsyncExitStack],
+        _scope_name: Optional[str],
+        path: List[Key],
+    ) -> List[Any]:
+        """Resolve ``rule`` dependencies level by level with ``asyncio.gather``."""
+        levels = self._independent_levels(list(rule.deps))
+        if rule.deps and not levels:
+            raise DependencyCycleError([lookup, *rule.deps])
+        args_by_key: Dict[Key, Any] = {}
+        for level in levels:
+            resolved = await asyncio.gather(
+                *(
+                    self.aget(
+                        dep,
+                        _stacks=stacks,
+                        _scope_name=_scope_name,
+                        _path=path,
+                    )
+                    for dep in level
+                )
+            )
+            args_by_key.update(dict(zip(level, resolved)))
+        return [args_by_key[dep] for dep in rule.deps]
+
+    async def _await_factory_result(
+        self,
+        lookup: Key,
+        rule: Rule,
+        obj: Any,
+        path: List[Key],
+    ) -> Any:
+        """Reject awaitables from sync factories and await async factory results."""
+        if not rule.is_async and inspect.isawaitable(obj):
+            raise SyncFactoryReturningAwaitableError(lookup)
+        if not inspect.isawaitable(obj):
+            return obj
+        try:
+            return await obj
+        except Exception as exc:
+            if self.config.wrap_factory_errors:
+                raise FactoryExecutionError(lookup, exc, path.copy()) from exc
+            raise
+
+    async def _finalize_on_cancel(
+        self,
+        lookup: Key,
+        stacks: List[AsyncExitStack],
+    ) -> Optional[ResourceFinalizationError]:
+        """Close async resources after cancellation, returning any failure."""
+        errors: List[Tuple[Key, Exception]] = []
+        for stack in stacks:
+            try:
+                await stack.aclose()
+            except Exception as exc:
+                if self.config.finalization_errors:
+                    errors.append((lookup, exc))
+                else:
+                    logger.exception(_YIELD_FINALIZE_ERROR, lookup)
+        if not errors:
+            return None
+        return ResourceFinalizationError(errors)
 
     @staticmethod
     def _is_injectable_key(key: Key) -> bool:
@@ -1873,125 +2107,35 @@ class Container:
             )
         started = self._tracer is not None
         start = time.perf_counter() if started else 0.0
-        if self._override_layers:
-            overridden = self._resolve_override(lookup)
-            if overridden is not _unset:
-                if inspect.isawaitable(overridden):
-                    overridden = await overridden
-                if started:
-                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
-                return overridden
+        hit, overridden = self._override_hit(lookup)
+        if hit:
+            if inspect.isawaitable(overridden):
+                overridden = await overridden
+            return self._override_result(lookup, overridden, started, start, _scope_name)
         if lookup in self.single:
-            if started:
-                self._trace(lookup, time.perf_counter() - start, True, _scope_name)
+            self._trace_hit(lookup, started, start, _scope_name)
             return self.single[lookup]
 
         path = self._enter_path(lookup, _path)
         try:
-            if len(path) > 1 and lookup in path[:-1]:
-                idx = path.index(lookup)
-                raise DependencyCycleError(path[idx:])
+            self._check_path_cycle(path, lookup)
 
-            try:
-                rule = self.config.ruleset.find(lookup)
-            except ServiceNotFoundError:
-                from .providers import implicit_collection_rule
-
-                collection = implicit_collection_rule(lookup, self.config.ruleset)
-                if collection is not None:
-                    rule = collection
-                elif self._is_injectable_key(lookup):
-                    from .auto_wiring import _rule_for
-
-                    self.config.ruleset.add(lookup, _rule_for(lookup))
-                    rule = self.config.ruleset.find(lookup)
-                elif qualifier is not None:
-                    raise UnregisteredDependencyError(key, qualifier) from None
-                elif len(path) > 1:
-                    src = self.config.ruleset.map.get(
-                        lookup, Rule(lookup, lambda: None)
-                    ).registration_source
-                    raise MissingDependencyError(
-                        lookup,
-                        path.copy(),
-                        scope=_scope_name,
-                        registration_source=src,
-                    ) from None
-                else:
-                    raise
+            rule = self._find_rule(lookup, key, qualifier, path, _scope_name)
             stacks = _stacks if _stacks is not None else []
             try:
-                if rule.async_yield_provider:
-                    stack = AsyncExitStack()
-                    stacks.append(stack)
-                    try:
-                        obj = await stack.enter_async_context(asynccontextmanager(rule.make)())
-                    except RuntimeError as exc:
-                        if "didn't yield" in str(exc):
-                            raise YieldNotCalledError(lookup) from None
-                        raise
-                    if rule.lifetime == "singleton":
-                        self.single[lookup] = obj
-                    self._cache_nested_aliases(lookup, obj)
-                    if started:
-                        self._trace(lookup, time.perf_counter() - start, False, _scope_name)
-                    return obj
-                if rule.yield_provider:
-                    raise TypeError(f"Sync yield provider {lookup!r} cannot be resolved via aget")
-                levels = self._independent_levels(list(rule.deps))
-                if rule.deps and not levels:
-                    raise DependencyCycleError([lookup, *rule.deps])
-                args_by_key: Dict[Key, Any] = {}
-                for level in levels:
-                    resolved = await asyncio.gather(
-                        *(
-                            self.aget(
-                                dep,
-                                _stacks=stacks,
-                                _scope_name=_scope_name,
-                                _path=path,
-                            )
-                            for dep in level
-                        )
-                    )
-                    args_by_key.update(dict(zip(level, resolved)))
-                args = [args_by_key[dep] for dep in rule.deps]
-                try:
-                    obj = rule.make(*args)
-                except Exception as exc:
-                    if self.config.wrap_factory_errors:
-                        raise FactoryExecutionError(lookup, exc, path.copy()) from exc
-                    raise
-                if not rule.is_async and inspect.isawaitable(obj):
-                    raise SyncFactoryReturningAwaitableError(lookup)
-                if inspect.isawaitable(obj):
-                    try:
-                        obj = await obj
-                    except Exception as exc:
-                        if self.config.wrap_factory_errors:
-                            raise FactoryExecutionError(lookup, exc, path.copy()) from exc
-                        raise
-
-                if rule.lifetime == "singleton":
-                    self.single[lookup] = obj
-                self._cache_nested_aliases(lookup, obj)
-
-                if started:
-                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
-
-                return obj
+                return await self._resolve_async_body(
+                    lookup,
+                    rule,
+                    stacks,
+                    started,
+                    start,
+                    _scope_name,
+                    path,
+                )
             except asyncio.CancelledError:
-                errors: List[Tuple[Key, Exception]] = []
-                for stack in stacks:
-                    try:
-                        await stack.aclose()
-                    except Exception as exc:
-                        if self.config.finalization_errors:
-                            errors.append((lookup, exc))
-                        else:
-                            logger.exception("Error finalizing yield provider %r", lookup)
-                if errors:
-                    raise ResourceFinalizationError(errors) from None
+                finalization = await self._finalize_on_cancel(lookup, stacks)
+                if finalization is not None:
+                    raise finalization from None
                 raise ResolutionCancelledError(lookup) from None
         finally:
             path.pop()
@@ -2062,19 +2206,35 @@ class Container:
                 if dep in needed:
                     indegree[key] += 1
                     dependents[dep].append(key)
+        return self._levels_from_graph(indegree, dependents)
 
-        ready = [key for key in needed if indegree[key] == 0]
+    @staticmethod
+    def _levels_from_graph(
+        indegree: Dict[Key, int],
+        dependents: Dict[Key, List[Key]],
+    ) -> List[List[Key]]:
+        """Kahn's algorithm: group nodes into concurrently resolvable levels."""
+        ready = [key for key in indegree if indegree[key] == 0]
         levels: List[List[Key]] = []
         while ready:
             levels.append(ready)
-            next_ready: List[Key] = []
-            for key in ready:
-                for dependent in dependents[key]:
-                    indegree[dependent] -= 1
-                    if indegree[dependent] == 0:
-                        next_ready.append(dependent)
-            ready = next_ready
+            ready = Container._next_level(ready, indegree, dependents)
         return levels
+
+    @staticmethod
+    def _next_level(
+        ready: List[Key],
+        indegree: Dict[Key, int],
+        dependents: Dict[Key, List[Key]],
+    ) -> List[Key]:
+        """Release one dependency level and return the newly unblocked keys."""
+        next_ready: List[Key] = []
+        for key in ready:
+            for dependent in dependents[key]:
+                indegree[dependent] -= 1
+                if indegree[dependent] == 0:
+                    next_ready.append(dependent)
+        return next_ready
 
     def scan(
         self,
@@ -2577,42 +2737,7 @@ class Container:
             for dep in rule.deps:
                 if dep not in ruleset.map:
                     errors.append(UnregisteredDependencyError(key, dep))
-
-            try:
-                sig = inspect.signature(rule.make)
-            except (TypeError, ValueError):
-                sig = None
-            if sig is not None:
-                positional = [
-                    p
-                    for p in sig.parameters.values()
-                    if p.kind
-                    in (
-                        inspect.Parameter.POSITIONAL_ONLY,
-                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    )
-                ]
-                required = sum(1 for p in positional if p.default is inspect.Parameter.empty)
-                total = len(positional)
-                has_varargs = any(
-                    p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
-                )
-                if len(rule.deps) < required:
-                    errors.append(
-                        InvalidFactoryError(
-                            key,
-                            f"factory requires at least {required} args "
-                            f"but only {len(rule.deps)} deps declared",
-                        )
-                    )
-                elif len(rule.deps) > total and not has_varargs:
-                    errors.append(
-                        InvalidFactoryError(
-                            key,
-                            f"factory accepts at most {total} args "
-                            f"but {len(rule.deps)} deps declared",
-                        )
-                    )
+            self._validate_factory_arity(key, rule, errors)
 
         for key in ruleset.map:
             try:
@@ -2625,6 +2750,33 @@ class Container:
                 raise errors[0]
             return None
         return errors
+
+    def _validate_factory_arity(
+        self,
+        key: Key,
+        rule: Rule,
+        errors: List[ValidationError],
+    ) -> None:
+        """Record an error when a factory's declared deps cannot bind."""
+        arity = _factory_arity(rule.make)
+        if arity is None:
+            return
+        required, total, has_varargs = arity
+        if len(rule.deps) < required:
+            errors.append(
+                InvalidFactoryError(
+                    key,
+                    f"factory requires at least {required} args "
+                    f"but only {len(rule.deps)} deps declared",
+                )
+            )
+        elif len(rule.deps) > total and not has_varargs:
+            errors.append(
+                InvalidFactoryError(
+                    key,
+                    f"factory accepts at most {total} args but {len(rule.deps)} deps declared",
+                )
+            )
 
     def compile(
         self,
@@ -2790,7 +2942,7 @@ class ContainerBuilder:
                     new_source=source,
                 )
             # WARN
-            logger.warning("Duplicate key %r registered; overwriting", key)
+            logger.warning(_DUPLICATE_KEY_OVERWRITTEN, key)
         if source is not None:
             object.__setattr__(rule, "registration_source", source)
         self.rules.add(key, rule)
@@ -2943,11 +3095,7 @@ class ContainerBuilder:
             ContainerBuildError
         """
         if validate:
-            missing: List[Tuple[Key, Key]] = []
-            for key, rule in self.rules.map.items():
-                for dep in rule.deps:
-                    if dep not in self.rules.map:
-                        missing.append((key, dep))
+            missing = self._missing_dependencies()
             if missing:
                 raise ContainerBuildError(missing)
         container = Container(
@@ -2962,12 +3110,27 @@ class ContainerBuilder:
             )
         )
         if policy is not None:
-            from .resolution import EagerPolicy
-
-            if isinstance(policy, EagerPolicy):
-                first = next(iter(self.rules.map), None)
-                if first is not None:
-                    for key in policy.order(self.rules.map, first):
-                        if key in self.rules.map:
-                            container.get(key)
+            self._warm_up_policy(container, policy)
         return container
+
+    def _missing_dependencies(self) -> List[Tuple[Key, Key]]:
+        """Return ``(key, dep)`` pairs for deps that are not registered."""
+        missing: List[Tuple[Key, Key]] = []
+        for key, rule in self.rules.map.items():
+            for dep in rule.deps:
+                if dep not in self.rules.map:
+                    missing.append((key, dep))
+        return missing
+
+    def _warm_up_policy(self, container: Container, policy: "ResolutionPolicy") -> None:
+        """Eagerly resolve every key in order when the policy is eager."""
+        from .resolution import EagerPolicy
+
+        if not isinstance(policy, EagerPolicy):
+            return
+        first = next(iter(self.rules.map), None)
+        if first is None:
+            return
+        for key in policy.order(self.rules.map, first):
+            if key in self.rules.map:
+                container.get(key)

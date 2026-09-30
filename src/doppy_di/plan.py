@@ -10,7 +10,6 @@ overhead and behaviour is unchanged.
 
 from __future__ import annotations
 
-import inspect
 import json
 import logging
 import time
@@ -27,6 +26,7 @@ from .container import (
     Rule,
     RuleSetProtocol,
     ServiceNotFoundError,
+    _factory_arity,
     _unset,
 )
 
@@ -311,6 +311,17 @@ def _emit_literal_root(
             return make_r(mk0(p[d0]), mk1(p[d1]))
 
         return _lit_ll
+
+    return _emit_lit3(make_r, pre, slots)
+
+
+def _emit_lit3(
+    make_r: Callable[..., Any],
+    pre: _PreludeFetch,
+    slots: Tuple[_FlatSlot, ...],
+) -> Callable[[], Any]:
+    """Three-slot root: all value-ref/leaf combinations."""
+
     kind0, payload0 = slots[0]
     kind1, payload1 = slots[1]
     kind2, payload2 = slots[2]
@@ -442,6 +453,16 @@ def _emit_literal2_root(
             return make_r(mk0(p[e0], p[f0]), mk1(p[e1], p[f1]))
 
         return _a_ll
+
+    return _emit_lit2_3(make_r, pre, slots)
+
+
+def _emit_lit2_3(
+    make_r: Callable[..., Any],
+    pre: _PreludeFetch,
+    slots: Tuple[_Leaf2Slot, ...],
+) -> Callable[[], Any]:
+    """Three two-value leaves inlined in a single frame."""
 
     kind0, payload0 = slots[0]
     kind1, payload1 = slots[1]
@@ -633,6 +654,34 @@ def _build_flat_resolver(
     if not _flat_node_eligible(root):
         return None
 
+    order = _collect_eligible_order(nodes, root_idx, _flat_node_eligible)
+    if order is None:
+        return None
+
+    prelude = _flat_prelude(nodes, order, makers)
+    if prelude is None:
+        return None
+    pre, prelude_pos = prelude
+
+    transient_idx = [i for i in order if i != root_idx and nodes[i].lifetime == "transient"]
+    kind, inner = _flatten_root(root, nodes, pre, prelude_pos, transient_idx)
+    if root.lifetime == "singleton":
+        if frozen is not None:
+            return kind, lambda: frozen[root.key]
+        return kind, _wrap_singleton(inner, root.key, container)
+    return kind, inner
+
+
+def _collect_eligible_order(
+    nodes: Tuple[_NodeSpec, ...],
+    root_idx: int,
+    eligible: Callable[[_NodeSpec], bool],
+) -> Optional[List[int]]:
+    """DFS the eligible sub-graph rooted at ``root_idx``.
+
+    Returns ``None`` when a node is ineligible or the sub-graph exceeds the
+    flat-resolver depth/node caps.
+    """
     seen: set[int] = set()
     order: List[int] = []
     stack: List[Tuple[int, int]] = [(root_idx, 0)]
@@ -643,25 +692,38 @@ def _build_flat_resolver(
         if depth > _MAX_FLAT_DEPTH or len(order) >= _MAX_FLAT_NODES:
             return None
         spec = nodes[idx]
-        if not _flat_node_eligible(spec):
+        if not eligible(spec):
             return None
         seen.add(idx)
         order.append(idx)
         for dep in spec.deps_idx:
             stack.append((dep, depth + 1))
+    return order
 
+
+def _flat_prelude(
+    nodes: Tuple[_NodeSpec, ...],
+    order: List[int],
+    makers: List[Optional[Callable[[], Any]]],
+) -> Optional[Tuple[_PreludeFetch, Dict[int, int]]]:
+    """Build the singleton fetch closure and its node-index mapping."""
     prelude_idx = sorted(i for i in order if nodes[i].lifetime == "singleton")
-    for i in prelude_idx:
-        if makers[i] is None:
-            return None
+    if any(makers[i] is None for i in prelude_idx):
+        return None
     pre = _make_prelude_fetch(tuple(cast(Callable[[], Any], makers[i]) for i in prelude_idx))
-    prelude_pos = {i: j for j, i in enumerate(prelude_idx)}
+    return pre, {i: j for j, i in enumerate(prelude_idx)}
 
-    transient_idx = [i for i in order if i != root_idx and nodes[i].lifetime == "transient"]
+
+def _flatten_root(
+    root: _NodeSpec,
+    nodes: Tuple[_NodeSpec, ...],
+    pre: _PreludeFetch,
+    prelude_pos: Dict[int, int],
+    transient_idx: List[int],
+) -> Tuple[str, Callable[[], Any]]:
+    """Return the flattened resolver kind and its root closure."""
     leaf_only = all(all(d in prelude_pos for d in nodes[i].deps_idx) for i in transient_idx)
-
     make_r = cast(Callable[..., Any], root.make)
-
     leaf_arities = {len(nodes[i].deps_idx) for i in transient_idx}
     if (
         leaf_only
@@ -671,64 +733,88 @@ def _build_flat_resolver(
             or (leaf_arities == {2} and len(root.deps_idx) >= 2)
         )
     ):
-        slots: List[_FlatSlot] = []
-        for d in root.deps_idx:
-            if d in prelude_pos:
-                slots.append(("p", prelude_pos[d]))
-            else:
-                leaf = nodes[d]
-                leaf_deps = leaf.deps_idx
-                if len(leaf_deps) == 1:
-                    slots.append(
-                        (
-                            "l1",
-                            (
-                                cast(Callable[[Any], Any], leaf.make),
-                                prelude_pos[leaf_deps[0]],
-                            ),
-                        )
-                    )
-                else:
-                    slots.append(
-                        (
-                            "l2",
-                            (
-                                cast(Callable[..., Any], leaf.make),
-                                prelude_pos[leaf_deps[0]],
-                                prelude_pos[leaf_deps[1]],
-                            ),
-                        )
-                    )
-        if leaf_arities == {2}:
-            inner = _emit_literal2_root(make_r, pre, tuple(slots))
-        else:
-            inner = _emit_literal_root(make_r, pre, tuple(slots))
-        kind = "flat"
-    else:
-        exprs: Dict[int, _ArgExpr] = {}
+        return _flatten_literal_root(root, nodes, pre, prelude_pos, leaf_arities)
 
-        def _arg_for(dep: int) -> _ArgExpr:
-            if dep in prelude_pos:
-                return _emit_ref(prelude_pos[dep])
-            return exprs[dep]
+    exprs: Dict[int, _ArgExpr] = {}
 
-        for i in sorted(transient_idx):
-            spec = nodes[i]
-            exprs[i] = _emit_expr(
-                cast(Callable[..., Any], spec.make),
-                tuple(_arg_for(d) for d in spec.deps_idx),
+    def _arg_for(dep: int) -> _ArgExpr:
+        if dep in prelude_pos:
+            return _emit_ref(prelude_pos[dep])
+        return exprs[dep]
+
+    for i in sorted(transient_idx):
+        spec = nodes[i]
+        exprs[i] = _emit_expr(
+            cast(Callable[..., Any], spec.make),
+            tuple(_arg_for(d) for d in spec.deps_idx),
+        )
+    inner = _emit_generic_root(make_r, pre, tuple(_arg_for(d) for d in root.deps_idx))
+    return "generic", inner
+
+
+def _flatten_literal_root(
+    root: _NodeSpec,
+    nodes: Tuple[_NodeSpec, ...],
+    pre: _PreludeFetch,
+    prelude_pos: Dict[int, int],
+    leaf_arities: set[int],
+) -> Tuple[str, Callable[[], Any]]:
+    """Inline a root whose transient children only read the prelude."""
+    slots = _flat_leaf_slots(root, nodes, prelude_pos)
+    make_r = cast(Callable[..., Any], root.make)
+    if leaf_arities == {2}:
+        return "flat", _emit_literal2_root(make_r, pre, tuple(slots))
+    return "flat", _emit_literal_root(make_r, pre, tuple(slots))
+
+
+def _flat_leaf_slots(
+    root: _NodeSpec,
+    nodes: Tuple[_NodeSpec, ...],
+    prelude_pos: Dict[int, int],
+) -> List[_FlatSlot]:
+    """Build literal slots for a root whose children only read the prelude."""
+    slots: List[_FlatSlot] = []
+    for d in root.deps_idx:
+        if d in prelude_pos:
+            slots.append(("p", prelude_pos[d]))
+            continue
+        leaf = nodes[d]
+        leaf_deps = leaf.deps_idx
+        if len(leaf_deps) == 1:
+            slots.append(
+                (
+                    "l1",
+                    (
+                        cast(Callable[[Any], Any], leaf.make),
+                        prelude_pos[leaf_deps[0]],
+                    ),
+                )
             )
-        inner = _emit_generic_root(make_r, pre, tuple(_arg_for(d) for d in root.deps_idx))
-        kind = "generic"
-
-    if root.lifetime == "singleton":
-        if frozen is not None:
-            return kind, lambda: frozen[root.key]
-        return kind, _wrap_singleton(inner, root.key, container)
-    return kind, inner
+        else:
+            slots.append(
+                (
+                    "l2",
+                    (
+                        cast(Callable[..., Any], leaf.make),
+                        prelude_pos[leaf_deps[0]],
+                        prelude_pos[leaf_deps[1]],
+                    ),
+                )
+            )
+    return slots
 
 
 # --- Issue #43: exec-free frozen fast path ------------------------------------
+
+
+def _has_shared_transient(nodes: Tuple[_NodeSpec, ...], order: List[int]) -> bool:
+    """Return True when a transient node in ``order`` has several parents."""
+    parents: Dict[int, int] = dict.fromkeys(order, 0)
+    for i in order:
+        for d in nodes[i].deps_idx:
+            if d in parents:
+                parents[d] += 1
+    return any(nodes[i].lifetime == "transient" and parents[i] > 1 for i in order)
 
 
 def _frozen_node_eligible(spec: _NodeSpec) -> bool:
@@ -819,31 +905,12 @@ def _build_frozen_resolver(
     if not _frozen_node_eligible(root):
         return None
 
-    seen: set[int] = set()
-    order: List[int] = []
-    stack: List[Tuple[int, int]] = [(root_idx, 0)]
-    while stack:
-        idx, depth = stack.pop()
-        if idx in seen:
-            continue
-        if depth > _MAX_FLAT_DEPTH or len(order) >= _MAX_FLAT_NODES:
-            return None
-        spec = nodes[idx]
-        if not _frozen_node_eligible(spec):
-            return None
-        seen.add(idx)
-        order.append(idx)
-        for dep in spec.deps_idx:
-            stack.append((dep, depth + 1))
+    order = _collect_eligible_order(nodes, root_idx, _frozen_node_eligible)
+    if order is None:
+        return None
 
-    parents: Dict[int, int] = dict.fromkeys(order, 0)
-    for i in order:
-        for d in nodes[i].deps_idx:
-            if d in parents:
-                parents[d] += 1
-    for i in order:
-        if nodes[i].lifetime == "transient" and parents[i] > 1:
-            return None
+    if _has_shared_transient(nodes, order):
+        return None
 
     exprs: Dict[int, _NoArgExpr] = {}
 
@@ -943,25 +1010,8 @@ class ExecutionPlan:
         execution mode through :attr:`BoundResolver.kind`.
         """
         lookup = (key, qualifier) if qualifier is not None else key
-        known = lookup in self.node_index or lookup in self.resolver_kinds
-        if self.nodes and not known:
-            if self.container is not None and not self.container.has(key, qualifier):
-                raise ServiceNotFoundError(key)
-        elif self.container is None and not known and _key_repr(lookup) not in self.singletons:
-            raise ServiceNotFoundError(key)
-        direct: Optional[Callable[[], Any]] = None
-        needs_guard = False
-        container = self.container
-        resolver = self.resolvers.get(lookup)
-        if resolver is not None:
-            if self.guardless:
-                direct = resolver
-                needs_guard = False
-            elif container is not None and (
-                self.frozen or (not container._override_layers and container._tracer is None)
-            ):
-                direct = resolver
-                needs_guard = not self.frozen
+        self._ensure_bound(key, qualifier, lookup)
+        needs_guard, direct = self._direct_binding(lookup)
         return BoundResolver(
             plan=self,
             key=key,
@@ -969,6 +1019,32 @@ class ExecutionPlan:
             _direct=direct,
             _needs_guard=needs_guard,
         )
+
+    def _ensure_bound(self, key: Key, qualifier: Optional[str], lookup: Key) -> None:
+        """Raise :class:`ServiceNotFoundError` when ``lookup`` cannot resolve."""
+        known = lookup in self.node_index or lookup in self.resolver_kinds
+        if known:
+            return
+        if self.nodes:
+            if self.container is not None and not self.container.has(key, qualifier):
+                raise ServiceNotFoundError(key)
+            return
+        if self.container is None and _key_repr(lookup) not in self.singletons:
+            raise ServiceNotFoundError(key)
+
+    def _direct_binding(self, lookup: Key) -> Tuple[bool, Optional[Callable[[], Any]]]:
+        """Return ``(needs_guard, direct)`` for a compiled resolver, if usable."""
+        resolver = self.resolvers.get(lookup)
+        if resolver is None:
+            return False, None
+        if self.guardless:
+            return False, resolver
+        container = self.container
+        if container is not None and (
+            self.frozen or (not container._override_layers and container._tracer is None)
+        ):
+            return not self.frozen, resolver
+        return False, None
 
     def _resolve_fast(self, lookup: Key) -> Any:
         """Resolve ``lookup`` using the precomputed node graph."""
@@ -983,99 +1059,139 @@ class ExecutionPlan:
 
         nodes = self.nodes
         if container is None:
-            resolved = [None] * (idx + 1)
-            for i in range(idx + 1):
-                spec = nodes[i]
-                if spec.lifetime == "singleton":
-                    cached = self.singletons.get(self.order[i], _MISSING)
-                    if cached is _MISSING:
-                        cached = self.singletons.get(_key_repr(spec.key), _MISSING)
-                    if cached is _MISSING and isinstance(spec.key, str):
-                        cached = self.singletons.get(spec.key, _MISSING)
-                    if cached is not _MISSING:
-                        resolved[i] = cached
-                        continue
-                make = spec.make
-                if make is None:
-                    raise ServiceNotFoundError(spec.key)
-                deps = spec.deps_idx
-                dep_objs = make(*[resolved[j] for j in deps]) if deps else make()
-                resolved[i] = dep_objs
-            return resolved[idx]
+            return self._resolve_static(idx, nodes)
+        return self._resolve_live(idx, nodes, container)
 
+    def _resolve_static(self, idx: int, nodes: Tuple[_NodeSpec, ...]) -> Any:
+        """Resolve up to ``idx`` without a live container (recorded singletons)."""
+        resolved: List[Any] = [None] * (idx + 1)
+        for i in range(idx + 1):
+            spec = nodes[i]
+            cached = self._static_singleton(i, spec)
+            if cached is not _MISSING:
+                resolved[i] = cached
+                continue
+            make = spec.make
+            if make is None:
+                raise ServiceNotFoundError(spec.key)
+            deps = spec.deps_idx
+            resolved[i] = make(*[resolved[j] for j in deps]) if deps else make()
+        return resolved[idx]
+
+    def _static_singleton(self, i: int, spec: _NodeSpec) -> Any:
+        """Return the recorded singleton for node ``i``, else ``_MISSING``."""
+        if spec.lifetime != "singleton":
+            return _MISSING
+        cached = self.singletons.get(self.order[i], _MISSING)
+        if cached is _MISSING:
+            cached = self.singletons.get(_key_repr(spec.key), _MISSING)
+        if cached is _MISSING and isinstance(spec.key, str):
+            cached = self.singletons.get(spec.key, _MISSING)
+        return cached
+
+    def _resolve_live(
+        self,
+        idx: int,
+        nodes: Tuple[_NodeSpec, ...],
+        container: Container,
+    ) -> Any:
+        """Resolve up to ``idx`` against a live container (caches and locks)."""
         single = container.single
         lock = container.lock
         override_layers = container._override_layers
-        tracer = container._tracer
-        started = tracer is not None
-        start = 0.0
-        if started:
-            start = time.perf_counter()
+        started = container._tracer is not None
+        start = time.perf_counter() if started else 0.0
 
-        resolved = [None] * (idx + 1)
+        resolved: List[Any] = [None] * (idx + 1)
         for i in range(idx + 1):
             spec = nodes[i]
-            if self.frozen:
-                if spec.lifetime == "singleton":
-                    resolved[i] = self._frozen[spec.key]
-                    continue
-            else:
-                if override_layers:
-                    overridden = container._resolve_override(spec.key)
-                    if overridden is not _unset:
-                        resolved[i] = overridden
-                        continue
-                if spec.lifetime == "singleton":
-                    cached = single.get(spec.key, _MISSING)
-                    if cached is not _MISSING:
-                        resolved[i] = cached
-                        continue
-
-            if spec.yield_provider or spec.async_yield_provider or spec.is_async:
+            is_cached, cached = self._cached_node(spec, container, single, override_layers)
+            if is_cached:
+                resolved[i] = cached
+                continue
+            if self._requires_container(spec):
                 return container.get(spec.key)
-
-            make = spec.make
-            if make is None:
-                return container.get(spec.key)
-
+            make = cast(Callable[..., Any], spec.make)
             deps = spec.deps_idx
             obj = make(*[resolved[j] for j in deps]) if deps else make()
-
-            if not self.frozen and spec.lifetime == "singleton":
-                with lock:
-                    existing = single.get(spec.key, _MISSING)
-                    if existing is _MISSING:
-                        single[spec.key] = obj
-                    else:
-                        obj = existing
-            if spec.nested:
-                container._cache_nested_aliases(spec.key, obj)
-            if started:
-                container._trace(spec.key, time.perf_counter() - start, False, None)
-            resolved[i] = obj
-
+            resolved[i] = self._finish_node(spec, obj, container, single, lock, started, start)
         return resolved[idx]
+
+    def _cached_node(
+        self,
+        spec: _NodeSpec,
+        container: Container,
+        single: Dict[Key, Any],
+        override_layers: List[Any],
+    ) -> Tuple[bool, Any]:
+        """Return ``(True, value)`` when the node is already available."""
+        if self.frozen:
+            if spec.lifetime != "singleton":
+                return False, None
+            return True, self._frozen[spec.key]
+        if override_layers:
+            overridden = container._resolve_override(spec.key)
+            if overridden is not _unset:
+                return True, overridden
+        if spec.lifetime == "singleton":
+            cached = single.get(spec.key, _MISSING)
+            if cached is not _MISSING:
+                return True, cached
+        return False, None
+
+    def _requires_container(self, spec: _NodeSpec) -> bool:
+        """Return True when the node cannot be built inline by the fast path."""
+        return (
+            spec.make is None or spec.yield_provider or spec.async_yield_provider or spec.is_async
+        )
+
+    def _finish_node(
+        self,
+        spec: _NodeSpec,
+        obj: Any,
+        container: Container,
+        single: Dict[Key, Any],
+        lock: Any,
+        started: bool,
+        start: float,
+    ) -> Any:
+        """Store singletons, cache nested aliases, record tracing."""
+        obj = self._store_singleton(spec, obj, single, lock)
+        if spec.nested:
+            container._cache_nested_aliases(spec.key, obj)
+        if started:
+            container._trace(spec.key, time.perf_counter() - start, False, None)
+        return obj
+
+    def _store_singleton(
+        self,
+        spec: _NodeSpec,
+        obj: Any,
+        single: Dict[Key, Any],
+        lock: Any,
+    ) -> Any:
+        """Persist a new singleton under the lock and return the winning value."""
+        if self.frozen or spec.lifetime != "singleton":
+            return obj
+        with lock:
+            existing = single.get(spec.key, _MISSING)
+            if existing is not _MISSING:
+                return existing
+            single[spec.key] = obj
+            return obj
 
     def get(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Resolve ``key`` using the precomputed order."""
         lookup = (key, qualifier) if qualifier is not None else key
-        if self.nodes:
-            if self.guardless:
-                resolver = self.resolvers.get(lookup)
-                if resolver is not None:
-                    return resolver()
-                return self._resolve_fast(lookup)
-            container = self.container
-            if container is not None and (
-                self.frozen or (not container._override_layers and container._tracer is None)
-            ):
-                resolvers = self.resolvers
-                try:
-                    resolver = resolvers[lookup]
-                except KeyError:
-                    return self._resolve_fast(lookup)
-                return resolver()
+        if not self.nodes:
+            return self._get_uncached(lookup)
+        resolver = self._pick_resolver(lookup)
+        if resolver is None:
             return self._resolve_fast(lookup)
+        return resolver()
+
+    def _get_uncached(self, lookup: Key) -> Any:
+        """Resolve without a compiled node graph (container or frozen values)."""
         container = self.container
         if container is not None:
             return container.get(lookup)
@@ -1083,6 +1199,21 @@ class ExecutionPlan:
         if lookup_repr in self.singletons:
             return self.singletons[lookup_repr]
         raise ServiceNotFoundError(lookup)
+
+    def _pick_resolver(self, lookup: Key) -> Optional[Callable[[], Any]]:
+        """Return a compiled resolver when current plan state allows a direct call."""
+        if self.guardless:
+            return self.resolvers.get(lookup)
+        if not self._direct_allowed():
+            return None
+        return self.resolvers.get(lookup)
+
+    def _direct_allowed(self) -> bool:
+        """True when compiled resolvers can be called without runtime guards."""
+        container = self.container
+        if container is None:
+            return False
+        return self.frozen or (not container._override_layers and container._tracer is None)
 
     def aget(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Async resolution using the precomputed order."""
@@ -1107,66 +1238,13 @@ class ExecutionPlan:
                 "while an override layer is active"
             )
         ruleset = container.config.ruleset
-
-        from .providers import implicit_collection_rule
-
-        for _key, rule in list(ruleset.map.items()):
-            for dep in rule.deps:
-                if dep not in ruleset.map:
-                    collection = implicit_collection_rule(dep, ruleset)
-                    if collection is not None:
-                        ruleset.add(dep, collection)
-
-        errors: List[Tuple[Key, Key]] = []
-        for key, rule in ruleset.map.items():
-            for dep in rule.deps:
-                if dep not in ruleset.map:
-                    errors.append((key, dep))
-        if errors:
-            raise MissingDependencyError(
-                errors[0][0],
-                resolution_path=[errors[0][0], errors[0][1]],
-            ) from None
+        _add_implicit_collections(ruleset)
+        _check_missing_dependencies(ruleset)
 
         for key, rule in ruleset.map.items():
-            try:
-                sig = inspect.signature(rule.make)
-            except (TypeError, ValueError):
-                sig = None
-            if sig is not None:
-                positional = [
-                    p
-                    for p in sig.parameters.values()
-                    if p.kind
-                    in (
-                        inspect.Parameter.POSITIONAL_ONLY,
-                        inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                    )
-                ]
-                required = sum(1 for p in positional if p.default is inspect.Parameter.empty)
-                total = len(positional)
-                has_varargs = any(
-                    p.kind == inspect.Parameter.VAR_POSITIONAL for p in sig.parameters.values()
-                )
-                if len(rule.deps) < required:
-                    raise InvalidFactoryError(
-                        key,
-                        f"factory requires at least {required} args "
-                        f"but only {len(rule.deps)} deps declared",
-                    ) from None
-                if len(rule.deps) > total and not has_varargs:
-                    raise InvalidFactoryError(
-                        key,
-                        f"factory accepts at most {total} args but {len(rule.deps)} deps declared",
-                    ) from None
+            _check_factory_arity(key, rule)
 
-        for key in ruleset.map:
-            try:
-                ruleset._check_cycle(key)
-            except DependencyCycleError:
-                raise
-            except Exception as exc:  # pragma: no cover - defensive
-                raise DependencyCycleError([key]) from exc
+        _check_cycles(ruleset)
 
         if copy_parent_rules and isinstance(ruleset, CompositeRuleSet):
             rules_map: Dict[Key, Rule] = dict(ruleset.map)
@@ -1174,89 +1252,15 @@ class ExecutionPlan:
             rules_map = ruleset.map
 
         order, edges = _topological_order(ruleset, rules_map)
-        meta: Dict[str, Dict[str, Any]] = {}
-        keys: Dict[str, Key] = {}
-        for key in rules_map:
-            repr_key = _key_repr(key)
-            meta[repr_key] = _rule_meta(rules_map[key])
-            keys[repr_key] = key
+        meta, keys = _rule_meta_map(rules_map)
+        key_to_idx, nodes = _plan_nodes(order, keys, rules_map)
 
-        key_to_idx: Dict[Key, int] = {}
-        for i, repr_key in enumerate(order):
-            key_to_idx[keys[repr_key]] = i
+        frozen = _freeze_singletons(container, nodes, allow_post_compile_overrides, guardless)
 
-        nodes: List[_NodeSpec] = []
-        for repr_key in order:
-            key = keys[repr_key]
-            rule = rules_map[key]
-            deps_idx = tuple(key_to_idx[d] for d in rule.deps if d in key_to_idx)
-            nodes.append(
-                _NodeSpec(
-                    key=key,
-                    make=rule.make,
-                    deps_idx=deps_idx,
-                    lifetime=rule.lifetime,
-                    yield_provider=rule.yield_provider,
-                    async_yield_provider=rule.async_yield_provider,
-                    is_async=rule.is_async,
-                    nested=rule.nested,
-                )
-            )
-
-        frozen: Optional[Dict[Key, Any]] = None
-        if not allow_post_compile_overrides or guardless:
-            frozen = {}
-            for _i, spec in enumerate(nodes):
-                if spec.lifetime != "singleton":
-                    continue
-                if spec.make is None:
-                    continue
-                deps = spec.deps_idx
-                args = [frozen[nodes[j].key] for j in deps]
-                frozen[spec.key] = spec.make(*args) if args else spec.make()
-            container.single.update(frozen)
-            object.__setattr__(container, "_compiled_plan", None)
-
-        makers: List[Optional[Callable[[], Any]]] = [None] * len(nodes)
-        resolvers: Dict[Key, Callable[[], Any]] = {}
-        for i, spec in enumerate(nodes):
-            if (
-                spec.make is None
-                or spec.yield_provider
-                or spec.async_yield_provider
-                or spec.is_async
-                or spec.nested
-            ):
-                continue
-            if not all(makers[j] is not None for j in spec.deps_idx):
-                continue
-            dep_makers = tuple(cast(Callable[[], Any], makers[j]) for j in spec.deps_idx)
-            maker = _build_node_maker(spec, dep_makers, container, frozen)
-            makers[i] = maker
-            resolvers[spec.key] = maker
+        makers, resolvers = _node_makers(nodes, container, frozen)
 
         nodes_tuple = tuple(nodes)
-        resolver_kinds: Dict[Key, str] = dict.fromkeys(resolvers, "composed")
-        for i, spec in enumerate(nodes):
-            if spec.key not in resolvers:
-                continue
-            if frozen is not None and spec.lifetime == "singleton":
-                resolver_kinds[spec.key] = "frozen"
-                continue
-            if frozen is not None:
-                fr = _build_frozen_resolver(i, nodes_tuple, frozen)
-
-                if fr is not None:
-                    kind, fn = fr
-                    resolvers[spec.key] = fn
-                    resolver_kinds[spec.key] = kind
-                    continue
-            flat = _build_flat_resolver(i, nodes_tuple, makers, container, frozen)
-            if flat is None:
-                continue
-            kind, fn = flat
-            resolvers[spec.key] = fn
-            resolver_kinds[spec.key] = kind
+        resolver_kinds = _refine_resolvers(nodes, resolvers, makers, container, frozen, nodes_tuple)
 
         policy = container.config.compile_policy.value
         return cls(
@@ -1428,3 +1432,191 @@ def _value_from_serializable(obj: Any) -> Any:
     if isinstance(obj, dict) and "__repr__" in obj:
         return obj["__repr__"]
     return obj
+
+
+def _add_implicit_collections(ruleset: RuleSetProtocol) -> None:
+    """Register implicit collection rules for unregistered dependency keys."""
+    from .providers import implicit_collection_rule
+
+    for _key, rule in list(ruleset.map.items()):
+        for dep in rule.deps:
+            if dep in ruleset.map:
+                continue
+            collection = implicit_collection_rule(dep, ruleset)
+            if collection is not None:
+                ruleset.add(dep, collection)
+
+
+def _check_missing_dependencies(ruleset: RuleSetProtocol) -> None:
+    """Raise :class:`MissingDependencyError` for the first unregistered dep."""
+    for key, rule in ruleset.map.items():
+        for dep in rule.deps:
+            if dep not in ruleset.map:
+                raise MissingDependencyError(key, resolution_path=[key, dep]) from None
+
+
+def _check_factory_arity(key: Key, rule: Rule) -> None:
+    """Raise :class:`InvalidFactoryError` when declared deps cannot bind."""
+    arity = _factory_arity(rule.make)
+    if arity is None:
+        return
+    required, total, has_varargs = arity
+    if len(rule.deps) < required:
+        raise InvalidFactoryError(
+            key,
+            f"factory requires at least {required} args but only {len(rule.deps)} deps declared",
+        ) from None
+    if len(rule.deps) > total and not has_varargs:
+        raise InvalidFactoryError(
+            key,
+            f"factory accepts at most {total} args but {len(rule.deps)} deps declared",
+        ) from None
+
+
+def _check_cycles(ruleset: RuleSetProtocol) -> None:
+    """Raise :class:`DependencyCycleError` when any rule participates in a cycle."""
+    for key in ruleset.map:
+        try:
+            ruleset._check_cycle(key)
+        except DependencyCycleError:
+            raise
+        except Exception as exc:  # pragma: no cover - defensive
+            raise DependencyCycleError([key]) from exc
+
+
+def _rule_meta_map(
+    rules_map: Dict[Key, Rule],
+) -> Tuple[Dict[str, Dict[str, Any]], Dict[str, Key]]:
+    """Build serializable rule metadata plus the repr-key mapping."""
+    meta: Dict[str, Dict[str, Any]] = {}
+    keys: Dict[str, Key] = {}
+    for key in rules_map:
+        repr_key = _key_repr(key)
+        meta[repr_key] = _rule_meta(rules_map[key])
+        keys[repr_key] = key
+    return meta, keys
+
+
+def _plan_nodes(
+    order: List[str],
+    keys: Dict[str, Key],
+    rules_map: Dict[Key, Rule],
+) -> Tuple[Dict[Key, int], List[_NodeSpec]]:
+    """Create node specs and the key-to-index mapping for ``order``."""
+    key_to_idx: Dict[Key, int] = {}
+    for i, repr_key in enumerate(order):
+        key_to_idx[keys[repr_key]] = i
+
+    nodes: List[_NodeSpec] = []
+    for repr_key in order:
+        key = keys[repr_key]
+        rule = rules_map[key]
+        deps_idx = tuple(key_to_idx[d] for d in rule.deps if d in key_to_idx)
+        nodes.append(
+            _NodeSpec(
+                key=key,
+                make=rule.make,
+                deps_idx=deps_idx,
+                lifetime=rule.lifetime,
+                yield_provider=rule.yield_provider,
+                async_yield_provider=rule.async_yield_provider,
+                is_async=rule.is_async,
+                nested=rule.nested,
+            )
+        )
+    return key_to_idx, nodes
+
+
+def _freeze_singletons(
+    container: Container,
+    nodes: List[_NodeSpec],
+    allow_post_compile_overrides: bool,
+    guardless: bool,
+) -> Optional[Dict[Key, Any]]:
+    """Pre-resolve singleton constants when the plan cannot change later."""
+    if allow_post_compile_overrides and not guardless:
+        return None
+    frozen: Dict[Key, Any] = {}
+    for spec in nodes:
+        if spec.lifetime != "singleton":
+            continue
+        if spec.make is None:
+            continue
+        args = [frozen[nodes[j].key] for j in spec.deps_idx]
+        frozen[spec.key] = spec.make(*args) if args else spec.make()
+    container.single.update(frozen)
+    object.__setattr__(container, "_compiled_plan", None)
+    return frozen
+
+
+def _maker_eligible(spec: _NodeSpec) -> bool:
+    """Return True when a per-node maker can be compiled for ``spec``."""
+    return (
+        spec.make is not None
+        and not spec.yield_provider
+        and not spec.async_yield_provider
+        and not spec.is_async
+        and not spec.nested
+    )
+
+
+def _node_makers(
+    nodes: List[_NodeSpec],
+    container: Container,
+    frozen: Optional[Dict[Key, Any]],
+) -> Tuple[List[Optional[Callable[[], Any]]], Dict[Key, Callable[[], Any]]]:
+    """Build makers and resolvers for every eligible node."""
+    makers: List[Optional[Callable[[], Any]]] = [None] * len(nodes)
+    resolvers: Dict[Key, Callable[[], Any]] = {}
+    for i, spec in enumerate(nodes):
+        if not _maker_eligible(spec):
+            continue
+        if not all(makers[j] is not None for j in spec.deps_idx):
+            continue
+        dep_makers = tuple(cast(Callable[[], Any], makers[j]) for j in spec.deps_idx)
+        maker = _build_node_maker(spec, dep_makers, container, frozen)
+        makers[i] = maker
+        resolvers[spec.key] = maker
+    return makers, resolvers
+
+
+def _refine_resolvers(
+    nodes: List[_NodeSpec],
+    resolvers: Dict[Key, Callable[[], Any]],
+    makers: List[Optional[Callable[[], Any]]],
+    container: Container,
+    frozen: Optional[Dict[Key, Any]],
+    nodes_tuple: Tuple[_NodeSpec, ...],
+) -> Dict[Key, str]:
+    """Replace composed resolvers with frozen/flat ones where possible."""
+    resolver_kinds: Dict[Key, str] = dict.fromkeys(resolvers, "composed")
+    for i, spec in enumerate(nodes):
+        if spec.key not in resolvers:
+            continue
+        if frozen is not None and spec.lifetime == "singleton":
+            resolver_kinds[spec.key] = "frozen"
+            continue
+        kind, fn = _specialized_resolver(i, nodes_tuple, makers, container, frozen)
+        if fn is None:
+            continue
+        resolvers[spec.key] = fn
+        resolver_kinds[spec.key] = kind
+    return resolver_kinds
+
+
+def _specialized_resolver(
+    i: int,
+    nodes_tuple: Tuple[_NodeSpec, ...],
+    makers: List[Optional[Callable[[], Any]]],
+    container: Container,
+    frozen: Optional[Dict[Key, Any]],
+) -> Tuple[str, Optional[Callable[[], Any]]]:
+    """Return a frozen/flat resolver for node ``i``, else ``("composed", None)``."""
+    if frozen is not None:
+        frozen_resolver = _build_frozen_resolver(i, nodes_tuple, frozen)
+        if frozen_resolver is not None:
+            return frozen_resolver
+    flat = _build_flat_resolver(i, nodes_tuple, makers, container, frozen)
+    if flat is None:
+        return "composed", None
+    return flat

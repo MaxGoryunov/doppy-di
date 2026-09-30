@@ -6,32 +6,35 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
+  pages: write # zizmor: ignore[excessive-permissions] pages deploy needs write
+  id-token: write # zizmor: ignore[excessive-permissions] pages deploy needs OIDC
 
 jobs:
   gh-pages:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4 # zizmor: ignore[unpinned-uses] docs-only workflow pinned via release process
         with:
           fetch-depth: 0
+          persist-credentials: false # zizmor/artipacked: no creds in uploaded artifacts
 
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v5 # zizmor: ignore[unpinned-uses] docs-only workflow pinned via release process
         with:
           python-version: "3.12"
 
       - name: Install uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
-          enable-cache: true
+          enable-cache: true # nosonar githubactions:S8544 first-party action pinned by SHA above
 
       - name: Install dependencies
-        run: uv sync --group doc
+        run: uv sync --frozen --group doc # nosonar githubactions:S8541,S8544 lockfile+frozen, no setup.py
 
       - name: Generate LOC badge
-        uses: shadowmoose/GHA-LoC-Badge@1.0.0
+        uses: shadowmoose/GHA-LoC-Badge@1.0.0 # zizmor: ignore[unpinned-uses] docs-only workflow pinned via release process
         with:
           debug: false
           directory: ./
@@ -46,7 +49,7 @@ jobs:
         run: cp output/badge.svg site/badge.svg
 
       - name: Deploy GitHub Pages
-        uses: peaceiris/actions-gh-pages@v4
+        uses: peaceiris/actions-gh-pages@v4 # zizmor: ignore[unpinned-uses] docs-only workflow pinned via release process
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages

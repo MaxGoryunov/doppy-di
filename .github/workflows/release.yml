@@ -6,6 +6,7 @@ on:
     workflows: ["CI"]
     types: [completed]
     branches: [main]
+# zizmor: ignore[dangerous-triggers] release only runs after CI success on same repo (guard below)
 
 permissions:
   contents: read
@@ -44,16 +45,16 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
-          enable-cache: true
+          enable-cache: true # nosonar githubactions:S8544 first-party action pinned by SHA above
 
       - name: Install Python
         run: uv python install 3.12
 
       - name: Install Node dependencies
-        run: npm ci --ignore-scripts
+        run: npm ci --ignore-scripts # nosonar githubactions:S6505,S8543 --ignore-scripts, package-lock.json pins versions
 
       - name: Install Python dependencies
-        run: uv sync --frozen --extra dev
+        run: uv sync --frozen --extra dev # nosonar githubactions:S8541,S8544 lockfile+frozen, no setup.py
 
       - name: Create GitHub Release
         env:
@@ -69,7 +70,7 @@ jobs:
           git checkout $LATEST_TAG
 
       - name: Build package
-        run: uv build
+        run: uv build # nosonar githubactions:S8541 hatchling backend, no setup.py execution
 
       - name: Publish to PyPI
         run: uv publish --trusted-publishing always

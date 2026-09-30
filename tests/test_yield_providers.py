@@ -82,8 +82,8 @@ def test_finalization_error_logged_not_raised(caplog: Any) -> None:
 
 def test_yield_not_called_raises() -> None:
     def make_empty() -> Iterator[object]:
-        if False:
-            yield object()  # type: ignore[unreachable]
+        # NOSONAR python:S5797: empty generator body is the test subject.
+        yield from ()  # pragma: no cover - never yields by design
 
     builder = ContainerBuilder()
     builder.service("empty", make_empty)

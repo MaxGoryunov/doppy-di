@@ -4,6 +4,8 @@ import sys
 from types import SimpleNamespace
 from typing import Any, Dict, List, Tuple
 
+import pytest
+
 
 class _FakeSpan:
     def __init__(self) -> None:
@@ -37,7 +39,7 @@ def test_otel_adapter_emits_spans() -> None:
     assert fake.spans[0][0] == "doppy.resolve:'a'"
     span = fake.spans[0][1]
     assert span.attrs["doppy.key"] == "'a'"
-    assert span.attrs["doppy.duration"] == 0.1
+    assert span.attrs["doppy.duration"] == pytest.approx(0.1)
     assert span.attrs["doppy.cache_hit"] is True
     assert span.attrs["doppy.scope"] == "req"
 
