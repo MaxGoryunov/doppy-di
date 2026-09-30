@@ -1741,27 +1741,44 @@ class Container:
             return self._resolve_with_policy(lookup, active, _scope_name)
         started = self._tracer is not None
         start = time.perf_counter() if started else 0.0
-        hit, overridden = self._override_hit(lookup)
-        if hit:
-            return self._override_result(lookup, overridden, started, start, _scope_name)
+        if self._override_layers:
+            overridden = self._resolve_override(lookup)
+            if overridden is not _unset:
+                if started:
+                    self._trace(lookup, time.perf_counter() - start, False, _scope_name)
+                return overridden
         if lookup in self.single:
-            self._trace_hit(lookup, started, start, _scope_name)
+            if started:
+                self._trace(lookup, time.perf_counter() - start, True, _scope_name)
             return self.single[lookup]
+        return self._resolve_uncached(lookup, key, qualifier, _scope_name, started, start)
 
+    def _resolve_uncached(
+        self,
+        lookup: Key,
+        key: Key,
+        qualifier: Optional[str],
+        _scope_name: Optional[str],
+        started: bool,
+        start: float,
+    ) -> Any:
+        """Resolve a cache miss: cycle guard, lock, rule lookup, factory call.
+
+        Kept out of :meth:`get` so the singleton fast path stays flat; the
+        helpers it calls only run when something actually has to be built.
+        """
         path = self._enter_path(lookup)
         try:
             self._check_path_cycle(path, lookup)
 
             with self.lock:
                 if lookup in self.single:
-                    self._trace_hit(lookup, started, start, _scope_name)
+                    if started:
+                        self._trace(lookup, time.perf_counter() - start, True, _scope_name)
                     return self.single[lookup]
 
                 rule = self._find_rule(lookup, key, qualifier, path, _scope_name)
-                if rule.async_yield_provider:
-                    raise TypeError(f"Async yield provider {lookup!r} requires async scope")
-                if rule.is_async:
-                    raise AsyncDependencyInSyncContextError(lookup)
+                self._ensure_sync_provider(rule, lookup)
                 args = self._resolve_sync_deps(lookup, rule, path, _scope_name)
                 obj = self._call_factory(lookup, rule, args, path)
                 if inspect.isawaitable(obj):
@@ -1769,6 +1786,14 @@ class Container:
                 return self._store_result(lookup, rule, obj, started, start, _scope_name)
         finally:
             path.pop()
+
+    @staticmethod
+    def _ensure_sync_provider(rule: Rule, lookup: Key) -> None:
+        """Reject async providers resolved through the synchronous path."""
+        if rule.async_yield_provider:
+            raise TypeError(f"Async yield provider {lookup!r} requires async scope")
+        if rule.is_async:
+            raise AsyncDependencyInSyncContextError(lookup)
 
     def _override_hit(self, lookup: Key) -> Tuple[bool, Any]:
         """Return ``(True, value)`` when an override layer provides ``lookup``."""

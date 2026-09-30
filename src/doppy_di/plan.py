@@ -1011,7 +1011,19 @@ class ExecutionPlan:
         """
         lookup = (key, qualifier) if qualifier is not None else key
         self._ensure_bound(key, qualifier, lookup)
-        needs_guard, direct = self._direct_binding(lookup)
+        resolver = self.resolvers.get(lookup)
+        needs_guard = False
+        direct: Optional[Callable[[], Any]] = None
+        if resolver is not None:
+            if self.guardless:
+                direct = resolver
+            else:
+                container = self.container
+                if container is not None and (
+                    self.frozen or (not container._override_layers and container._tracer is None)
+                ):
+                    needs_guard = not self.frozen
+                    direct = resolver
         return BoundResolver(
             plan=self,
             key=key,
@@ -1031,20 +1043,6 @@ class ExecutionPlan:
             return
         if self.container is None and _key_repr(lookup) not in self.singletons:
             raise ServiceNotFoundError(key)
-
-    def _direct_binding(self, lookup: Key) -> Tuple[bool, Optional[Callable[[], Any]]]:
-        """Return ``(needs_guard, direct)`` for a compiled resolver, if usable."""
-        resolver = self.resolvers.get(lookup)
-        if resolver is None:
-            return False, None
-        if self.guardless:
-            return False, resolver
-        container = self.container
-        if container is not None and (
-            self.frozen or (not container._override_layers and container._tracer is None)
-        ):
-            return not self.frozen, resolver
-        return False, None
 
     def _resolve_fast(self, lookup: Key) -> Any:
         """Resolve ``lookup`` using the precomputed node graph."""
@@ -1185,10 +1183,19 @@ class ExecutionPlan:
         lookup = (key, qualifier) if qualifier is not None else key
         if not self.nodes:
             return self._get_uncached(lookup)
-        resolver = self._pick_resolver(lookup)
-        if resolver is None:
+        if self.guardless:
+            resolver = self.resolvers.get(lookup)
+            if resolver is not None:
+                return resolver()
             return self._resolve_fast(lookup)
-        return resolver()
+        container = self.container
+        if container is not None and (
+            self.frozen or (not container._override_layers and container._tracer is None)
+        ):
+            resolver = self.resolvers.get(lookup)
+            if resolver is not None:
+                return resolver()
+        return self._resolve_fast(lookup)
 
     def _get_uncached(self, lookup: Key) -> Any:
         """Resolve without a compiled node graph (container or frozen values)."""
@@ -1199,21 +1206,6 @@ class ExecutionPlan:
         if lookup_repr in self.singletons:
             return self.singletons[lookup_repr]
         raise ServiceNotFoundError(lookup)
-
-    def _pick_resolver(self, lookup: Key) -> Optional[Callable[[], Any]]:
-        """Return a compiled resolver when current plan state allows a direct call."""
-        if self.guardless:
-            return self.resolvers.get(lookup)
-        if not self._direct_allowed():
-            return None
-        return self.resolvers.get(lookup)
-
-    def _direct_allowed(self) -> bool:
-        """True when compiled resolvers can be called without runtime guards."""
-        container = self.container
-        if container is None:
-            return False
-        return self.frozen or (not container._override_layers and container._tracer is None)
 
     def aget(self, key: Key, qualifier: Optional[str] = None) -> Any:
         """Async resolution using the precomputed order."""

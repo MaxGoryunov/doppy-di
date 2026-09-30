@@ -1,0 +1,71 @@
+Environment
+-----------
+Python: 3.12.13 (AMD64)
+Platform: Windows-10-10.0.19045-SP0
+Processor: Intel64 Family 6 Model 142 Stepping 12, GenuineIntel
+CPU count: 8
+Benchmark commit: unknown
+dependency-injector: 4.49.1
+dishka: 1.10.1
+doppy-di: 2.36.0.post1.dev3+gda3b816a4.d20260930
+injex: 1.9.0
+lagom: 2.7.7
+punq: 0.8.0
+wireup: 2.12.0
+Warmup iterations: 12_000
+Measured iterations: 250_000
+Samples: 9
+
+Graph
+-----
+Settings: singleton
+ApiClient(Settings): singleton
+UserRepository(ApiClient): transient
+EmailSender(ApiClient): transient
+AuditLog(Settings): transient
+RegisterUser(UserRepository, EmailSender, AuditLog): transient
+
+Results
+-------
+Implementation           Median us/op  Min us/op  Max us/op   Overhead vs manual
+manual                          0.776      0.757      1.488                +0.0%
+injex                           0.911      0.876      2.242               +17.3%
+doppy-di guardless              1.135      1.095      2.627               +46.2%
+doppy-di frozen                 1.241      1.125      2.741               +59.9%
+doppy-di compiled               1.277      1.216      2.912               +64.6%
+wireup same scope               1.802      1.738      5.947              +132.2%
+dishka                          1.898      1.747      4.424              +144.6%
+dependency-injector             2.089      1.980      4.948              +169.2%
+wireup scope/op                 3.087      2.932      6.402              +297.8%
+doppy-di                       16.499     14.347     22.657             +2026.3%
+lagom                          29.149     27.784     33.962             +3656.5%
+punq                          181.662    177.533    200.679            +23311.1%
+
+Semantic checks
+---------------
+manual: PASS
+injex: PASS
+doppy-di: PASS
+doppy-di compiled: PASS
+doppy-di frozen: PASS
+doppy-di guardless: PASS
+wireup same scope: FAIL (AssertionError())
+wireup scope/op: FAIL (AssertionError())
+dishka: PASS
+dependency-injector: PASS
+lagom: FAIL (AssertionError())
+punq: FAIL (AssertionError())
+
+Cold-start results
+------------------
+Implementation         Build+register+validate+first resolve
+doppy-di                        0.155 ms
+dependency-injector             0.249 ms
+injex                           0.369 ms
+lagom                           0.408 ms
+punq                            0.447 ms
+doppy-di compiled               0.709 ms
+doppy-di guardless              0.753 ms
+dishka                          3.704 ms
+wireup scope/op                 4.063 ms
+wireup same scope               4.397 ms
