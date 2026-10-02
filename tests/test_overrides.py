@@ -5,7 +5,7 @@ from typing import Any, cast
 
 import pytest
 
-from doppy_di import UnregisteredTypeError
+from doppy_di import MissingDependencyError, ServiceNotFoundError, UnregisteredTypeError
 from doppy_di.container import ContainerBuilder
 from doppy_di.providers import Scoped
 
@@ -278,6 +278,43 @@ def test_override_layer_empty_when_unused() -> None:
     assert container._override_layers == []
 
     assert container.get("a") == 1
+
+
+def test_override_hit_miss_with_layers() -> None:
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+
+    # No layers: miss path.
+    assert container._override_hit("a") == (False, None)
+
+    # Layer present but key absent: miss path through _resolve_override.
+    with container.override("a", 10):
+        assert container._override_hit("other") == (False, None)
+        assert container._override_hit("a") == (True, 10)
+
+
+def test_dependency_error_helpers_cover_branches() -> None:
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+
+    # Path with single element: falls through to None (re-raise original).
+    assert container._dependency_error("a", ServiceNotFoundError("b"), ["a"], None) is None
+
+    # MissingDependencyError with registration_source set: returns None.
+    exc = MissingDependencyError("b", resolution_path=["a", "b"], registration_source="src")
+    assert container._missing_dependency_error("a", exc, None) is None
+
+    # MissingDependencyError without source and lookup without source: None.
+    exc2 = MissingDependencyError("b", resolution_path=["a", "b"])
+    assert container._missing_dependency_error("zzz-missing", exc2, None) is None
 
 
 def test_override_kwargs_supported() -> None:

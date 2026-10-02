@@ -207,6 +207,188 @@ def test_plan_frozen_singleton_identity_with_container() -> None:
     assert a is container.get(ApiClient)
 
 
+def test_plan_frozen_singleton_root_returns_constant() -> None:
+    from doppy_di.plan import _build_frozen_resolver, _plan_nodes
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    assert plan.frozen
+    assert plan._frozen.get("a") == 1
+
+    # Root singleton with frozen constants: build resolver directly to hit
+    # the `lambda: frozen[root.key]` early-return branch.
+    key_to_idx, nodes = _plan_nodes(list(plan.order), plan.keys, container.config.ruleset.map)
+    frozen = dict(plan._frozen)
+    idx = key_to_idx["a"]
+    built = _build_frozen_resolver(idx, tuple(nodes), frozen)
+    assert built is not None
+    kind, resolver = built
+    assert kind == "frozen"
+    assert resolver() == 1
+
+
+def test_plan_add_implicit_collections_registers_member() -> None:
+    from typing import List
+
+    from doppy_di.plan import _add_implicit_collections
+
+    builder = ContainerBuilder()
+    builder.value(int, 1)
+    builder.service("svc", lambda items: len(items), deps=[List[int]])
+    container = builder.build()
+    ruleset = container.config.ruleset
+    assert List[int] not in ruleset.map
+    _add_implicit_collections(ruleset)
+    assert List[int] in ruleset.map
+
+
+def test_plan_static_singleton_third_lookup_branch() -> None:
+    from doppy_di.plan import _MISSING, _key_repr
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+    container.get("a")
+
+    plan = container.compile()
+    snapshot = plan._singleton_snapshot()
+    plan.singletons.update(snapshot)
+    # Drop the order-key and repr-key entries so the raw `spec.key`
+    # fallback branch is exercised.
+    singleton_idx = next(i for i, s in enumerate(plan.nodes) if s.lifetime == "singleton")
+    spec = plan.nodes[singleton_idx]
+    plan.singletons.pop(plan.order[singleton_idx], None)
+    plan.singletons.pop(_key_repr(spec.key), None)
+    if isinstance(spec.key, str):
+        plan.singletons[spec.key] = 1
+    assert plan._static_singleton(singleton_idx, spec) == 1
+    assert plan._static_singleton(singleton_idx, spec) is not _MISSING
+
+
+def test_plan_store_singleton_race_returns_existing() -> None:
+    import threading
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+    container.get("a")
+
+    plan = container.compile()
+    singleton_idx = next(i for i, s in enumerate(plan.nodes) if s.lifetime == "singleton")
+    spec = plan.nodes[singleton_idx]
+    single = {spec.key: "winner"}
+    assert plan._store_singleton(spec, "loser", single, threading.Lock()) == "winner"
+
+
+def test_plan_ensure_bound_deserialized_no_container_missing() -> None:
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    plan = builder.build().compile()
+    restored = ExecutionPlan.deserialize(plan.serialize())
+
+    assert restored.container is None
+    # Nodes present, no container, unknown lookup: falls through the
+    # `container is not None` branch and returns without raising.
+    restored._ensure_bound("a", None, "other-missing")
+    # Known key: early return.
+    restored._ensure_bound("a", None, "a")
+
+
+def test_plan_frozen_resolver_transient_root_with_deps() -> None:
+    from doppy_di.plan import _build_frozen_resolver, _plan_nodes
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    builder.service("t", lambda a: a + 1, deps=["a"])
+
+    container = builder.build()
+
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    key_to_idx, nodes = _plan_nodes(list(plan.order), plan.keys, container.config.ruleset.map)
+    idx = key_to_idx["t"]
+    built = _build_frozen_resolver(idx, tuple(nodes), dict(plan._frozen))
+    assert built is not None
+    kind, resolver = built
+    assert kind == "flat"
+    assert resolver() == 2
+
+
+def test_plan_flat_resolver_singleton_root_with_frozen() -> None:
+    from doppy_di.plan import _build_flat_resolver, _NodeSpec
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    builder.service("t", lambda a: a + 1, deps=["a"])
+
+    container = builder.build()
+    container.get("t")  # cache transient so frozen dict gains an entry
+
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    frozen = dict(plan._frozen)
+    frozen["t"] = 2  # simulate singleton-root-with-frozen branch input
+
+    # Singleton root with frozen constants: hits the flat-resolver
+    # `lambda: frozen[root.key]` branch (line 670), pre-existing logic.
+    solo = _NodeSpec(
+        key="t",
+        make=lambda: 2,
+        deps_idx=(),
+        lifetime="singleton",
+        yield_provider=False,
+        async_yield_provider=False,
+        is_async=False,
+        nested=False,
+    )
+    solo_maker = lambda: 2  # noqa: E731 - test-local maker for prelude
+    built = _build_flat_resolver(0, (solo,), [solo_maker], container, frozen)
+    assert built is not None
+    _kind, resolver = built
+    assert resolver() == 2
+
+
+def test_plan_freeze_singletons_skips_none_make() -> None:
+    from doppy_di.plan import _freeze_singletons, _NodeSpec
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+
+    nodes = [
+        _NodeSpec(
+            key="a",
+            make=None,
+            deps_idx=(),
+            lifetime="singleton",
+            yield_provider=False,
+            async_yield_provider=False,
+            is_async=False,
+            nested=False,
+        )
+    ]
+    frozen = _freeze_singletons(container, nodes, False, False)
+    assert frozen == {}
+
+
 def test_plan_frozen_nested_singleton_uses_resolve_fast() -> None:
 
     from doppy_di import Rule
@@ -766,6 +948,27 @@ def test_plan_compile_rejects_factory_arity_too_many_deps() -> None:
 
     with pytest.raises(InvalidFactoryError):
         container.compile()
+
+
+def test_validate_skips_uninspectable_factory() -> None:
+    from doppy_di.container import Rule, _factory_arity
+
+    # Builtin without introspectable signature -> arity None -> early return.
+    assert _factory_arity(object()) is None
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    container = builder.build()
+    rule = container.config.ruleset.map["a"]
+    uninspectable = Rule(rule.key, int, deps=rule.deps, lifetime=rule.lifetime)
+
+    errors: list[Any] = []
+    container._validate_factory_arity("a", uninspectable, errors)
+
+    assert errors == []
+    assert container.validate() is None
 
 
 def test_plan_deserialize_rebuilds_node_index_and_nodes() -> None:
@@ -1979,6 +2182,76 @@ def test_plan_frozen_shared_transient_falls_back() -> None:
     assert obj[1] == ["s", 1]
 
     assert obj[2] == ["s", 1]
+
+
+def test_plan_frozen_resolver_ineligible_root_returns_none() -> None:
+    from doppy_di.plan import _build_frozen_resolver, _plan_nodes
+
+    async def make_async() -> int:
+        return 1
+
+    builder = ContainerBuilder()
+
+    builder.service("a", make_async)
+
+    container = builder.build()
+
+    plan = container.compile()
+
+    key_to_idx, nodes = _plan_nodes(list(plan.order), plan.keys, container.config.ruleset.map)
+    assert _build_frozen_resolver(key_to_idx["a"], tuple(nodes), {}) is None
+
+
+def test_plan_frozen_resolver_order_none_returns_none(monkeypatch: Any) -> None:
+    import doppy_di.plan as plan_mod
+    from doppy_di.plan import _build_frozen_resolver, _plan_nodes
+
+    builder = ContainerBuilder()
+
+    builder.value("v", 1)
+
+    builder.service("t", lambda v: ["t", v], deps=["v"])
+
+    builder.service("root", lambda t: ["r", t], deps=["t"])
+
+    container = builder.build()
+    plan = container.compile(allow_post_compile_overrides=False)
+
+    key_to_idx, nodes = _plan_nodes(list(plan.order), plan.keys, container.config.ruleset.map)
+    monkeypatch.setattr(plan_mod, "_MAX_FLAT_DEPTH", -1)
+    assert _build_frozen_resolver(key_to_idx["root"], tuple(nodes), dict(plan._frozen)) is None
+
+
+def test_plan_flat_resolver_ineligible_root_returns_none() -> None:
+    from doppy_di.plan import _build_flat_resolver, _plan_nodes
+
+    async def make_async() -> int:
+        return 1
+
+    builder = ContainerBuilder()
+
+    builder.service("a", make_async)
+
+    container = builder.build()
+
+    plan = container.compile()
+
+    key_to_idx, nodes = _plan_nodes(list(plan.order), plan.keys, container.config.ruleset.map)
+    assert _build_flat_resolver(key_to_idx["a"], tuple(nodes), [], container, None) is None
+
+
+def test_plan_ensure_bound_empty_plan_raises() -> None:
+    from doppy_di.plan import ExecutionPlan as Plan
+
+    empty = Plan.__new__(Plan)
+    object.__setattr__(empty, "node_index", {})
+    object.__setattr__(empty, "resolver_kinds", {})
+    object.__setattr__(empty, "nodes", ())
+    object.__setattr__(empty, "container", None)
+    object.__setattr__(empty, "singletons", {})
+
+    with pytest.raises(ServiceNotFoundError):
+        empty._ensure_bound("x", None, "x")
 
 
 def test_plan_frozen_arity_zero_and_one() -> None:

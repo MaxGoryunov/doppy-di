@@ -144,6 +144,56 @@ def test_eager_policy_raises_on_async_rule() -> None:
         builder.build(policy=EagerPolicy())
 
 
+def test_warm_up_policy_empty_rules_map_returns_early() -> None:
+    from doppy_di.resolution import EagerPolicy
+
+    container = ContainerBuilder().build(policy=EagerPolicy())
+
+    # No registrations: _warm_up_policy sees an empty rule map and returns.
+    assert container.compile() is not None
+
+
+def test_warm_up_policy_skips_non_eager() -> None:
+    from doppy_di.resolution import DefaultResolutionPolicy
+
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+
+    # Non-eager policy at build time: _warm_up_policy early-returns.
+    container = builder.build(policy=DefaultResolutionPolicy())  # type: ignore[arg-type]
+
+    assert container.get("a") == 1
+
+
+def test_warm_up_policy_skips_missing_key_in_order(monkeypatch: Any) -> None:
+    from typing import Any as _Any
+
+    from doppy_di.resolution import _topological
+
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    builder.value("b", 2)
+
+    base_topo = _topological
+    state = {"first": True}
+
+    def patched_topo(graph: _Any, keys: _Any) -> _Any:
+        order = base_topo(graph, keys)
+        if state["first"]:
+            state["first"] = False
+            return ["ghost", *order]
+        return order
+
+    monkeypatch.setattr("doppy_di.resolution._topological", patched_topo)
+
+    from doppy_di.resolution import EagerPolicy
+
+    container = builder.build(policy=EagerPolicy())
+
+    assert container.get("a") == 1
+    assert container.get("b") == 2
+
+
 def test_parallel_policy_sync_get_sequential() -> None:
     builder = ContainerBuilder()
     builder.value("a", 1)

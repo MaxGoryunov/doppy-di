@@ -272,6 +272,50 @@ def test_plan_get_missing_key_after_deserialize_raises() -> None:
         restored.get("missing")
 
 
+def test_plan_ensure_bound_branches() -> None:
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    plan = builder.build().compile()
+
+    # Known key: early return, no raise.
+    plan._ensure_bound("a", None, "a")
+
+    # Nodes present + container present + registered: return without raise.
+    plan._ensure_bound("a", None, "other-missing")
+
+    # Nodes present + container present + unregistered: raises.
+    with pytest.raises(ServiceNotFoundError):
+        plan._ensure_bound("zzz-nope", "q", ("zzz-nope", "q"))
+
+
+def test_plan_static_singleton_lookup_branches() -> None:
+    from doppy_di.plan import _MISSING
+
+    builder = ContainerBuilder()
+
+    builder.value("a", 1)
+
+    builder.service("t", lambda a: a + 1, deps=["a"])
+
+    container = builder.build()
+    container.get("a")  # populate singleton cache so snapshot hits
+
+    plan = container.compile()
+    snapshot = plan._singleton_snapshot()
+    plan.singletons.update(snapshot)
+
+    # Transient spec: not a singleton -> _MISSING.
+    transient_idx = next(i for i, s in enumerate(plan.nodes) if s.lifetime != "singleton")
+    assert plan._static_singleton(transient_idx, plan.nodes[transient_idx]) is _MISSING
+
+    # Singleton spec: recorded value returned.
+    singleton_idx = next(i for i, s in enumerate(plan.nodes) if s.lifetime == "singleton")
+    assert plan._static_singleton(singleton_idx, plan.nodes[singleton_idx]) == 1
+
+
 def test_plan_aget_live_container() -> None:
 
     builder = ContainerBuilder()
