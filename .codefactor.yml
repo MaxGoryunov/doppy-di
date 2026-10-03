@@ -1,0 +1,13 @@
+# CodeFactor configuration.
+#
+# Generated and frozen-benchmark trees are excluded so the grade tracks
+# shipped code only, mirroring the qlty triage in .qlty/qlty.toml.
+# Pull-request analysis must be enabled in the CodeFactor repository
+# settings; this file only controls what the analysis inspects.
+ignore:
+  - src/doppy_di/_legacy.py
+  - tests/*
+  - benchmarks/*
+  - scripts/*
+  - .quality/*
+  - .qlty/*

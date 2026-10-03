@@ -258,10 +258,9 @@ def test_aget_async_yield_provider_cached_singleton() -> None:
 
 
 def test_aget_async_yield_provider_empty_raises() -> None:
-    async def make_empty() -> AsyncIterator[object]:
-        if True:  # pragma: no cover - never yields by design
-            return
-        yield object()
+    async def make_empty(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never yields by design
+            yield object()
 
     builder = ContainerBuilder()
     builder.service("empty", make_empty)
@@ -275,10 +274,9 @@ def test_aget_async_yield_provider_empty_raises() -> None:
 
 
 def test_async_scope_empty_yield_raises() -> None:
-    async def make_empty() -> AsyncIterator[object]:
-        if True:  # pragma: no cover - never yields by design
-            return
-        yield object()
+    async def make_empty(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never yields by design
+            yield object()
 
     builder = ContainerBuilder()
     builder.service("empty", make_empty)
