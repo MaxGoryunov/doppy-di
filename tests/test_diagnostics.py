@@ -66,9 +66,10 @@ def test_missing_dependency_error_enriched_with_source() -> None:
 
 
 def test_async_yield_provider_other_runtime_error_reraises() -> None:
-    async def make_broken() -> AsyncIterator[object]:
+    async def make_broken(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never reached by design
+            yield object()
         raise RuntimeError("boom")
-        yield object()  # pragma: no cover - unreachable
 
     builder = ContainerBuilder()
     builder.service("broken", make_broken)
@@ -82,9 +83,10 @@ def test_async_yield_provider_other_runtime_error_reraises() -> None:
 
 
 def test_async_scope_yield_other_runtime_error_reraises() -> None:
-    async def make_broken() -> AsyncIterator[object]:
+    async def make_broken(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never reached by design
+            yield object()
         raise RuntimeError("boom-scope")
-        yield object()  # pragma: no cover - unreachable
 
     builder = ContainerBuilder()
     builder.service("broken", make_broken)
