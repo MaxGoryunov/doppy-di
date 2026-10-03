@@ -20,4 +20,4 @@ filter:
 checks:
   python:
     code_rating: true
-    duplication: true
+    duplicate_code: true
