@@ -40,6 +40,8 @@ exclude_patterns = [
   "**/templates/**",
   "**/testdata/**",
   "**/vendor/**",
+  # Local-only secrets file (gitignored). Never scanned or uploaded.
+  ".env",
 ]
 
 test_patterns = [
@@ -123,6 +125,8 @@ match.rules = [
   "CVE-2026-48758",
   "CVE-2026-9496",
   "CVE-2026-48815",
+  "CVE-2026-93687",
+  "CVE-2026-93748",
 ]
 set.ignored = true
 
