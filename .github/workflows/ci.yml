@@ -130,3 +130,25 @@ jobs:
 
       - name: Run analyzers
         run: qlty check
+
+  # SonarCloud FREE plan supports default-branch analysis and pull-request
+  # analysis for public repos, but not analysis of other long-lived branches.
+  # The scan therefore runs on pull requests and on pushes to the default
+  # branch. Skipped (green) when the SONAR_TOKEN secret is not configured.
+  sonarcloud:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0 # full history for accurate new-code / blame data
+          persist-credentials: false
+
+      - name: SonarCloud Scan
+        if: env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
