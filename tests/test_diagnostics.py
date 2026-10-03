@@ -33,6 +33,71 @@ def test_missing_dependency_has_path() -> None:
     assert exc.value.resolution_path == ["a", "b", "c"]
 
 
+def test_dependency_error_wraps_service_not_found_with_path() -> None:
+    builder = ContainerBuilder()
+    builder.service("a", lambda b: b, deps=["b"])
+    builder.service("b", lambda c: c, deps=["c"])
+    container = builder.build()
+
+    # Deep path: ServiceNotFoundError for "c" wrapped into MissingDependencyError.
+    wrapped = container._dependency_error("a", ServiceNotFoundError("c"), ["a", "b", "c"], None)
+    assert isinstance(wrapped, MissingDependencyError)
+    assert wrapped.resolution_path == ["a", "b", "c"]
+
+
+def test_missing_dependency_error_enriched_with_source() -> None:
+    from doppy_di.container import Rule
+
+    builder = ContainerBuilder()
+    builder.service("a", lambda b: b, deps=["b"])
+    container = builder.build()
+
+    rule = container.config.ruleset.map["a"]
+    src = RegistrationSource("test.py", 1, "f")
+    sourced = Rule(
+        rule.key, rule.make, deps=rule.deps, lifetime=rule.lifetime, registration_source=src
+    )
+    container.config.ruleset.map["a"] = sourced
+
+    exc = MissingDependencyError("b", resolution_path=["a", "b"])
+    enriched = container._missing_dependency_error("a", exc, None)
+    assert isinstance(enriched, MissingDependencyError)
+    assert enriched.registration_source == src
+
+
+def test_async_yield_provider_other_runtime_error_reraises() -> None:
+    async def make_broken() -> AsyncIterator[object]:
+        raise RuntimeError("boom")
+        yield object()  # pragma: no cover - unreachable
+
+    builder = ContainerBuilder()
+    builder.service("broken", make_broken)
+    container = builder.build()
+
+    async def main() -> None:
+        await container.aget("broken")
+
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(main())
+
+
+def test_async_scope_yield_other_runtime_error_reraises() -> None:
+    async def make_broken() -> AsyncIterator[object]:
+        raise RuntimeError("boom-scope")
+        yield object()  # pragma: no cover - unreachable
+
+    builder = ContainerBuilder()
+    builder.service("broken", make_broken)
+    container = builder.build()
+
+    async def main() -> None:
+        async with container.ascope("req") as scope:
+            await scope.get("broken")
+
+    with pytest.raises(RuntimeError, match="boom-scope"):
+        asyncio.run(main())
+
+
 def test_root_missing_still_raises_service_not_found() -> None:
     builder = ContainerBuilder()
     container = builder.build()

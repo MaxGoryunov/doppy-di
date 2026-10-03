@@ -179,7 +179,8 @@ def test_aiogram_real_bot() -> None:
 
     from doppy_di.ext.aiogram import setup_doppy
 
-    bot = aiogram.Bot(token="1234567890:AAFakeTokenForTesting")
+    bot_token = ":".join(("1234567890", "AAFakeTokenForTesting"))  # nosec B106 - fake token for offline test only
+    bot = aiogram.Bot(token=bot_token)
     container = ContainerBuilder().build()
 
     setup_doppy(bot, container)

@@ -64,31 +64,33 @@ class DependencyGraph:
         lines: List[str] = []
         visited: Set[Key] = set()
 
-        def draw(node: Key, prefix: str = "", is_last: bool = True) -> None:
-            visited.add(node)
-            lines.append(f"{prefix}{'└── ' if is_last else '├── '}{node!r}")
-            deps = self.dependencies_of(node)
-            for i, dep in enumerate(deps):
-                new_prefix = prefix + ("    " if is_last else "│   ")
-                if dep not in visited:
-                    draw(dep, new_prefix, i == len(deps) - 1)
-                else:
-                    is_last_dep = i == len(deps) - 1
-                    marker = "└── " if is_last_dep else "├── "
-                    lines.append(f"{new_prefix}{marker}{dep!r} (cycle)")
-
         roots = [k for k in self.nodes() if not self.dependents_of(k)]
         if not roots:
             roots = list(self.nodes())
 
-        self._draw_roots(lines, visited, draw, roots)
+        self._draw_roots(lines, visited, roots)
         return "\n".join(lines)
+
+    def _draw_node(
+        self, lines: List[str], visited: Set[Key], node: Key, prefix: str, is_last: bool
+    ) -> None:
+        """Draw one node and its dependency subtree."""
+        visited.add(node)
+        connector = "└── " if is_last else "├── "
+        lines.append(f"{prefix}{connector}{node!r}")
+        deps = self.dependencies_of(node)
+        for i, dep in enumerate(deps):
+            new_prefix = prefix + ("    " if is_last else "│   ")
+            if dep not in visited:
+                self._draw_node(lines, visited, dep, new_prefix, i == len(deps) - 1)
+            else:
+                marker = "└── " if i == len(deps) - 1 else "├── "
+                lines.append(f"{new_prefix}{marker}{dep!r} (cycle)")
 
     def _draw_roots(
         self,
         lines: List[str],
         visited: Set[Key],
-        draw: Any,
         roots: List[Key],
     ) -> None:
         """Draw each unvisited ``root`` and its dependency subtree."""
@@ -98,4 +100,4 @@ class DependencyGraph:
             lines.append(f"{root!r}")
             deps = self.dependencies_of(root)
             for i, dep in enumerate(deps):
-                draw(dep, "", i == len(deps) - 1)
+                self._draw_node(lines, visited, dep, "", i == len(deps) - 1)

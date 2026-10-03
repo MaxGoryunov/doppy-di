@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   lint-type:
@@ -27,10 +27,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
-          enable-cache: true
+          enable-cache: true # nosonar githubactions:S8544 first-party action pinned by SHA above
 
       - name: Install deps
-        run: uv sync --frozen --extra dev --extra fastapi --extra aiogram --extra typer
+        run: uv sync --frozen --extra dev --extra fastapi --extra aiogram --extra typer # nosonar githubactions:S8541,S8544 lockfile+frozen, no setup.py
 
       - name: Ruff format
         run: uv run ruff format --check .
@@ -49,7 +49,7 @@ jobs:
         run: uv run mypy
 
       - name: Build wheel
-        run: uv build
+        run: uv build # nosonar githubactions:S8541 hatchling backend, no setup.py execution
 
       - name: Verify PEP 561 compliance
         run: |
@@ -66,10 +66,11 @@ jobs:
           node-version: "22"
 
       - name: Install Node deps
-        run: npm ci
+        run: npm ci # nosonar githubactions:S6505,S8543 package-lock.json pins versions; registry deps only
 
       - name: Commitlint (PR)
         if: github.event_name == 'pull_request'
+        # nosonar githubactions:S6505,S8543 --no-install, package-lock.json pinned
         run: |
           npx --no-install commitlint \
             --from ${{ github.event.pull_request.base.sha }} \
@@ -77,6 +78,7 @@ jobs:
 
       - name: Commitlint (Push)
         if: github.event_name == 'push'
+        # nosonar githubactions:S6505,S8543 --no-install, package-lock.json pinned
         run: |
           npx --no-install commitlint \
             --from HEAD~1 \
@@ -102,10 +104,10 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990
         with:
-          enable-cache: true
+          enable-cache: true # nosonar githubactions:S8544 first-party action pinned by SHA above
 
       - name: Install deps
-        run: uv sync --frozen --extra dev --extra fastapi --extra aiogram --extra typer
+        run: uv sync --frozen --extra dev --extra fastapi --extra aiogram --extra typer # nosonar githubactions:S8541,S8544 lockfile+frozen, no setup.py
 
       - name: Run tests
         run: uv run pytest --cov --cov-branch --cov-report=xml

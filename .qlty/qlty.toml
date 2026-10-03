@@ -94,5 +94,38 @@ drivers = [
 [[plugin]]
 name = "trufflehog"
 
+# Lob detector false-positives on pytest names (test_*): matcher treats
+# `test_...` function names as Lob test API keys. Real secrets never live in tests.
+[[triage]]
+match.plugins = ["trufflehog"]
+match.file_patterns = ["tests/**"]
+set.ignored = true
+
+# `_legacy.py` is a frozen performance baseline kept for before/after
+# comparison with the current compiled plan (see
+# issues/45-resolve-hotpath-optimizations.md and benchmarks/compare_120.py).
+# It is not public API and is deliberately not refactored, because rewriting
+# it would invalidate the baseline it exists to measure against.
+[[triage]]
+match.plugins = ["radarlint-python"]
+match.file_patterns = ["src/doppy_di/_legacy.py"]
+set.ignored = true
+
+# npm's own bundled dependencies (`node_modules/npm/node_modules/**`) carry
+# these advisories. They come in only through the dev-only semantic-release
+# toolchain, are never shipped with the wheel, and can only be refreshed by
+# npm itself regenerating package-lock.json (`npm install`) - node/npm are not
+# part of this project's build. Revisit when the lock file is next regenerated.
+[[triage]]
+match.plugins = ["osv-scanner"]
+match.file_patterns = ["package-lock.json"]
+match.rules = [
+  "CVE-2026-48758",
+  "CVE-2026-9496",
+  "CVE-2026-48815",
+]
+set.ignored = true
+
+
 [[plugin]]
 name = "zizmor"

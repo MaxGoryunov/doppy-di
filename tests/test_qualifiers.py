@@ -45,7 +45,7 @@ def test_default_resolution_unaffected() -> None:
     builder.service(Database, _db("default"))
     container = builder.build()
 
-    db = container.get(Database)  # qualifier=None
+    db = container.get(Database)
     assert db.name == "default"
 
 

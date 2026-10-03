@@ -33,11 +33,17 @@ from injex import Container as InjexContainer
 
 from doppy_di import Container, ContainerBuilder
 
+DOPPY_COMPILED = "doppy-di compiled"
+DOPPY_FROZEN = "doppy-di frozen"
+DOPPY_GUARDLESS = "doppy-di guardless"
+DEFAULT_DATABASE_URL = "sqlite:///:memory:"
+DEFAULT_SMTP_URL = "smtp://localhost"
+
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str = "sqlite:///:memory:"
-    smtp_url: str = "smtp://localhost"
+    database_url: str = DEFAULT_DATABASE_URL
+    smtp_url: str = DEFAULT_SMTP_URL
 
 
 class ApiClient:
@@ -206,7 +212,8 @@ def bootstrap_median_diff_ci(
     seed: int = 42,
 ) -> tuple[float, float]:
     """Percentile bootstrap CI for median(xs) - median(ys), in ns/op."""
-    rng = random.Random(seed)
+    # nosec B311 - reproducible PRNG for benchmark, not cryptography
+    rng = random.Random(seed)  # nosec B311 nosemgrep: python.randomness.insecure-randomness
 
     def resampled_median(values: list[float]) -> float:
         draw: Iterator[float] = (rng.choice(values) for _ in values)
@@ -265,9 +272,9 @@ def main() -> None:
     cases = [
         ("manual", manual_resolve),
         ("injex", setup_injex()),
-        ("doppy-di compiled", setup_doppy_di_compiled()),
-        ("doppy-di frozen", setup_doppy_di_frozen()),
-        ("doppy-di guardless", setup_doppy_di_guardless()),
+        (DOPPY_COMPILED, setup_doppy_di_compiled()),
+        (DOPPY_FROZEN, setup_doppy_di_frozen()),
+        (DOPPY_GUARDLESS, setup_doppy_di_guardless()),
     ]
     samples = bench_interleaved(cases, iterations=iterations, rounds=rounds)
 
@@ -283,18 +290,19 @@ def main() -> None:
         )
 
     print("\nPairwise comparisons (x vs y)")
+    # NOSONAR python:S1192: comparison labels are display strings, each used once.
     comparisons = [
-        ("injex vs doppy-di frozen", samples["injex"], samples["doppy-di frozen"]),
-        ("injex vs doppy-di compiled", samples["injex"], samples["doppy-di compiled"]),
+        ("injex vs doppy-di frozen", samples["injex"], samples[DOPPY_FROZEN]),
+        ("injex vs doppy-di compiled", samples["injex"], samples[DOPPY_COMPILED]),
         (
             "doppy-di frozen vs compiled",
-            samples["doppy-di frozen"],
-            samples["doppy-di compiled"],
+            samples[DOPPY_FROZEN],
+            samples[DOPPY_COMPILED],
         ),
         (
             "guardless vs frozen",
-            samples["doppy-di guardless"],
-            samples["doppy-di frozen"],
+            samples[DOPPY_GUARDLESS],
+            samples[DOPPY_FROZEN],
         ),
         ("manual vs injex", samples["manual"], samples["injex"]),
     ]

@@ -1,0 +1,105 @@
+{
+  "benchmark_commit": "unknown",
+  "cold_start_ms": {
+    "dependency-injector": 0.249,
+    "dishka": 3.7036,
+    "doppy-di": 0.1555,
+    "doppy-di compiled": 0.7087,
+    "doppy-di guardless": 0.7534,
+    "injex": 0.3693,
+    "lagom": 0.4077,
+    "punq": 0.4473,
+    "wireup same scope": 4.3972,
+    "wireup scope/op": 4.0627
+  },
+  "cpu": "Intel64 Family 6 Model 142 Stepping 12, GenuineIntel",
+  "graph": {
+    "ApiClient": "singleton",
+    "AuditLog": "transient",
+    "EmailSender": "transient",
+    "RegisterUser": "transient",
+    "Settings": "singleton",
+    "UserRepository": "transient"
+  },
+  "iterations": 250000,
+  "platform": "Windows-10-10.0.19045-SP0",
+  "python": "3.12.13",
+  "results": {
+    "dependency-injector": {
+      "max_us_per_op": 4.9479196000000005,
+      "median_us_per_op": 2.0887504,
+      "min_us_per_op": 1.9799980000000001
+    },
+    "dishka": {
+      "max_us_per_op": 4.424030800000001,
+      "median_us_per_op": 1.8978084,
+      "min_us_per_op": 1.7473716
+    },
+    "doppy-di": {
+      "max_us_per_op": 22.656662400000002,
+      "median_us_per_op": 16.499252799999997,
+      "min_us_per_op": 14.3471628
+    },
+    "doppy-di compiled": {
+      "max_us_per_op": 2.9122612,
+      "median_us_per_op": 1.2772176,
+      "min_us_per_op": 1.2164824
+    },
+    "doppy-di frozen": {
+      "max_us_per_op": 2.7413847999999996,
+      "median_us_per_op": 1.2405591999999999,
+      "min_us_per_op": 1.1248524
+    },
+    "doppy-di guardless": {
+      "max_us_per_op": 2.627072,
+      "median_us_per_op": 1.1347996,
+      "min_us_per_op": 1.0950144
+    },
+    "injex": {
+      "max_us_per_op": 2.2419728,
+      "median_us_per_op": 0.9105764000000001,
+      "min_us_per_op": 0.8761251999999999
+    },
+    "lagom": {
+      "max_us_per_op": 33.9616996,
+      "median_us_per_op": 29.149096399999998,
+      "min_us_per_op": 27.78427
+    },
+    "manual": {
+      "max_us_per_op": 1.4877708,
+      "median_us_per_op": 0.7759664000000001,
+      "min_us_per_op": 0.757448
+    },
+    "punq": {
+      "max_us_per_op": 200.6786948,
+      "median_us_per_op": 181.6621768,
+      "min_us_per_op": 177.5333936
+    },
+    "wireup same scope": {
+      "max_us_per_op": 5.9469899999999996,
+      "median_us_per_op": 1.8020364,
+      "min_us_per_op": 1.73823
+    },
+    "wireup scope/op": {
+      "max_us_per_op": 6.4023352000000004,
+      "median_us_per_op": 3.0869892,
+      "min_us_per_op": 2.9319735999999996
+    }
+  },
+  "samples": 9,
+  "semantic_checks": {
+    "dependency-injector": "PASS",
+    "dishka": "PASS",
+    "doppy-di": "PASS",
+    "doppy-di compiled": "PASS",
+    "doppy-di frozen": "PASS",
+    "doppy-di guardless": "PASS",
+    "injex": "PASS",
+    "lagom": "FAIL (AssertionError())",
+    "manual": "PASS",
+    "punq": "FAIL (AssertionError())",
+    "wireup same scope": "FAIL (AssertionError())",
+    "wireup scope/op": "FAIL (AssertionError())"
+  },
+  "warmup": 12000
+}

@@ -54,7 +54,7 @@ class _DependsMarker:
         self.dependency = dependency
 
 
-def Depends(  # noqa: N802
+def Depends(  # noqa: N802  # NOSONAR python:S1542 public marker mirrors FastAPI Depends API
     dependency: Optional[Union[Type[Any], Callable[..., Any]]] = None,
 ) -> Any:
     """Declare a dependency for injection.
@@ -76,7 +76,7 @@ class _ExternalMarker:
     __slots__ = ()
 
 
-def External() -> Any:  # noqa: N802
+def External() -> Any:  # noqa: N802  # NOSONAR python:S1542 public marker, assisted-injection API
     """Declare a runtime parameter supplied at build time (assisted injection).
 
     Parameters whose default is an ``External()`` marker are *not* resolved
@@ -101,7 +101,7 @@ class _PassthroughMarker:
     __slots__ = ()
 
 
-def Pass() -> Any:  # noqa: N802
+def Pass() -> Any:  # noqa: N802  # NOSONAR python:S1542 public marker, assisted-injection API
     """Exempt a framework-supplied parameter from injection.
 
     Handlers wrapped by ``@inject`` normally resolve every annotated

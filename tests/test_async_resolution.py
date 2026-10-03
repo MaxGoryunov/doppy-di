@@ -10,6 +10,7 @@ from doppy_di import (
     AsyncDependencyInSyncContextError,
     ContainerBuilder,
     SyncFactoryReturningAwaitableError,
+    YieldNotCalledError,
 )
 
 
@@ -254,3 +255,53 @@ def test_aget_async_yield_provider_cached_singleton() -> None:
     first, second = asyncio.run(main())
     assert first is second
     assert len(calls) == 1
+
+
+def test_aget_async_yield_provider_empty_raises() -> None:
+    async def make_empty() -> AsyncIterator[object]:
+        if True:  # pragma: no cover - never yields by design
+            return
+        yield object()
+
+    builder = ContainerBuilder()
+    builder.service("empty", make_empty)
+    container = builder.build()
+
+    async def main() -> None:
+        await container.aget("empty")
+
+    with pytest.raises(YieldNotCalledError):
+        asyncio.run(main())
+
+
+def test_async_scope_empty_yield_raises() -> None:
+    async def make_empty() -> AsyncIterator[object]:
+        if True:  # pragma: no cover - never yields by design
+            return
+        yield object()
+
+    builder = ContainerBuilder()
+    builder.service("empty", make_empty)
+    container = builder.build()
+
+    async def main() -> None:
+        async with container.ascope("req") as scope:
+            await scope.get("empty")
+
+    with pytest.raises(YieldNotCalledError):
+        asyncio.run(main())
+
+
+def test_aget_override_awaitable_resolves() -> None:
+    async def make_override() -> int:
+        return 99
+
+    builder = ContainerBuilder()
+    builder.value("a", 1)
+    container = builder.build()
+
+    async def main() -> int:
+        with container.override("a", make_override()):
+            return await container.aget("a")
+
+    assert asyncio.run(main()) == 99

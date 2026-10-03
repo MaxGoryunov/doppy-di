@@ -70,7 +70,7 @@ def test_validate_non_strict_cycle_error_type() -> None:
 
     errors = container.validate(strict=False)
     assert errors is not None
-    assert any(isinstance(e, CyclicDependencyError) for e in errors)
+    assert any(isinstance(err, CyclicDependencyError) for err in errors)
 
 
 def test_validate_invalid_factory_too_few_deps() -> None:
@@ -102,7 +102,7 @@ def test_validate_invalid_factory_non_strict() -> None:
 
     errors = container.validate(strict=False)
     assert errors is not None
-    assert any(isinstance(e, InvalidFactoryError) for e in errors)
+    assert any(isinstance(err, InvalidFactoryError) for err in errors)
 
 
 def test_validate_varargs_factory_ok() -> None:
@@ -133,7 +133,7 @@ def test_validate_cycle_error_attributes() -> None:
 
     errors = container.validate(strict=False)
     assert errors is not None
-    cycle = next(e for e in errors if isinstance(e, CyclicDependencyError))
+    cycle = next(err for err in errors if isinstance(err, CyclicDependencyError))
     assert "a" in cycle.path
     assert "b" in cycle.path
 
@@ -146,7 +146,7 @@ def test_validate_invalid_factory_attributes() -> None:
 
     errors = container.validate(strict=False)
     assert errors is not None
-    err = next(e for e in errors if isinstance(e, InvalidFactoryError))
+    err = next(err for err in errors if isinstance(err, InvalidFactoryError))
     assert err.key == "a"
     assert "args" in err.reason
 
@@ -170,7 +170,7 @@ def test_validate_non_strict_collects_all_errors() -> None:
     errors = container.validate(strict=False)
     assert errors is not None
     assert len(errors) == 2
-    assert all(isinstance(e, UnregisteredDependencyError) for e in errors)
+    assert all(isinstance(err, UnregisteredDependencyError) for err in errors)
 
 
 def test_validate_empty_container() -> None:

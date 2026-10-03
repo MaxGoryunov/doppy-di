@@ -33,11 +33,18 @@ from wireup import injectable
 
 from doppy_di import Container, ContainerBuilder
 
+DOPPY = "doppy-di"
+DOPPY_COMPILED = "doppy-di compiled"
+DOPPY_FROZEN = "doppy-di frozen"
+DOPPY_GUARDLESS = "doppy-di guardless"
+DEFAULT_DATABASE_URL = "sqlite:///:memory:"
+DEFAULT_SMTP_URL = "smtp://localhost"
+
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str = "sqlite:///:memory:"
-    smtp_url: str = "smtp://localhost"
+    database_url: str = DEFAULT_DATABASE_URL
+    smtp_url: str = DEFAULT_SMTP_URL
 
 
 class ApiClient:
@@ -370,7 +377,6 @@ def semantic_checks(cases: list[tuple[str, Callable[[], object]]]) -> dict[str, 
 
 
 def cold_start_bench(
-    name: str,
     setup: Callable[[], Callable[[], object]],
     *,
     samples: int = 9,
@@ -393,13 +399,13 @@ def main() -> None:
     env_lines.append(f"CPU count: {os.cpu_count()}")
     env_lines.append(f"Benchmark commit: {os.environ.get('GIT_COMMIT', 'unknown')}")
     for package in [
-        "injex",
-        "wireup",
-        "dishka",
         "dependency-injector",
+        "dishka",
+        "doppy-di",
+        "injex",
         "lagom",
         "punq",
-        "doppy-di",
+        "wireup",
     ]:
         env_lines.append(f"{package}: {package_version(package)}")
     env_lines.append("Warmup iterations: 12_000")
@@ -410,10 +416,10 @@ def main() -> None:
     cases = [
         ("manual", manual_resolve),
         ("injex", setup_injex()),
-        ("doppy-di", setup_doppy_di()),
-        ("doppy-di compiled", setup_doppy_di_compiled()),
-        ("doppy-di frozen", setup_doppy_di_frozen()),
-        ("doppy-di guardless", setup_doppy_di_guardless()),
+        (DOPPY, setup_doppy_di()),
+        (DOPPY_COMPILED, setup_doppy_di_compiled()),
+        (DOPPY_FROZEN, setup_doppy_di_frozen()),
+        (DOPPY_GUARDLESS, setup_doppy_di_guardless()),
         ("wireup same scope", setup_wireup_same_scope()),
         ("wireup scope/op", setup_wireup_scope_per_op()),
         ("dishka", setup_dishka()),
@@ -442,8 +448,8 @@ def main() -> None:
             f"{min_value / 1000:>7.3f}..{max_value / 1000:<7.3f}"
         )
 
-    frozen = results["doppy-di frozen"][0]
-    allow = results["doppy-di compiled"][0]
+    frozen = results[DOPPY_FROZEN][0]
+    allow = results[DOPPY_COMPILED][0]
     print(f"\nfrozen/allow ratio (median): {frozen / allow:.3f}")
 
     print("\nSemantic checks")
@@ -455,9 +461,9 @@ def main() -> None:
     print("\nCold-start results (build+register+validate+first resolve)")
     cold_cases = [
         ("injex", setup_injex),
-        ("doppy-di", setup_doppy_di),
-        ("doppy-di compiled", setup_doppy_di_compiled),
-        ("doppy-di guardless", setup_doppy_di_guardless),
+        (DOPPY, setup_doppy_di),
+        (DOPPY_COMPILED, setup_doppy_di_compiled),
+        (DOPPY_GUARDLESS, setup_doppy_di_guardless),
         ("wireup same scope", setup_wireup_same_scope),
         ("wireup scope/op", setup_wireup_scope_per_op),
         ("dishka", setup_dishka),
@@ -465,7 +471,7 @@ def main() -> None:
         ("lagom", setup_lagom),
         ("punq", setup_punq),
     ]
-    cold_results = {name: cold_start_bench(name, setup) for name, setup in cold_cases}
+    cold_results = {name: cold_start_bench(setup) for name, setup in cold_cases}
     print(f"{'library':<22} {'median ms':>14}")
     for name, ms in sorted(cold_results.items(), key=lambda row: row[1]):
         print(f"{name:<22} {ms:>14.3f}")

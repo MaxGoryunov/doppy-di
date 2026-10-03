@@ -23,10 +23,16 @@ from injex import Container as InjexContainer
 from doppy_di import ContainerBuilder
 from doppy_di import _legacy as legacy
 
+# Scenario labels repeated across graphs (Sonar python:S1192)
+LABEL_FROZEN_PLAN_GET = "frozen plan.get"
+LABEL_FAST_PLAN_GET = "fast plan.get (guardless)"
+LABEL_FAST_BOUND = "fast bound() (guardless)"
+DEFAULT_DATABASE_URL = "sqlite:///:memory:"
+
 
 @dataclass(frozen=True)
 class Settings:
-    database_url: str = "sqlite:///:memory:"
+    database_url: str = DEFAULT_DATABASE_URL
 
 
 class ApiClient:
@@ -108,10 +114,10 @@ def setup_register() -> dict[str, Callable[[], Any]]:
         "legacy bound()": pleg.bind(RegisterUser),
         "new plan.get": lambda: pnew.get(RegisterUser),
         "new bound()": pnew.bind(RegisterUser),
-        "frozen plan.get": lambda: pfrozen.get(RegisterUser),
+        LABEL_FROZEN_PLAN_GET: lambda: pfrozen.get(RegisterUser),
         "frozen bound()": pfrozen.bind(RegisterUser),
-        "fast plan.get (guardless)": lambda: pfast.get(RegisterUser),
-        "fast bound() (guardless)": pfast.bind(RegisterUser),
+        LABEL_FAST_PLAN_GET: lambda: pfast.get(RegisterUser),
+        LABEL_FAST_BOUND: pfast.bind(RegisterUser),
     }
 
 
@@ -154,9 +160,9 @@ def setup_chain() -> dict[str, Callable[[], Any]]:
         "manual": lambda: Service(Conn(Config())),
         "injex.resolve": lambda: inj.resolve(Service),
         "new plan.get": lambda: pnew.get(Service),
-        "frozen plan.get": lambda: pfrozen.get(Service),
-        "fast plan.get (guardless)": lambda: pfast.get(Service),
-        "fast bound() (guardless)": pfast.bind(Service),
+        LABEL_FROZEN_PLAN_GET: lambda: pfrozen.get(Service),
+        LABEL_FAST_PLAN_GET: lambda: pfast.get(Service),
+        LABEL_FAST_BOUND: pfast.bind(Service),
     }
 
 
@@ -204,9 +210,9 @@ def setup_leaf2() -> dict[str, Callable[[], Any]]:
     return {
         "manual": lambda: Root(LeafX(DepA(), shared_settings), LeafY(DepB(), shared_settings)),
         "legacy plan.get": lambda: pleg.get(Root),
-        "frozen plan.get": lambda: pfrozen.get(Root),
-        "fast plan.get (guardless)": lambda: pfast.get(Root),
-        "fast bound() (guardless)": pfast.bind(Root),
+        LABEL_FROZEN_PLAN_GET: lambda: pfrozen.get(Root),
+        LABEL_FAST_PLAN_GET: lambda: pfast.get(Root),
+        LABEL_FAST_BOUND: pfast.bind(Root),
     }
 
 

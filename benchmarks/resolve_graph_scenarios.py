@@ -49,6 +49,11 @@ from injex import Container as InjexContainer
 
 from doppy_di import ContainerBuilder
 
+DOPPY_COMPILED = "doppy-di compiled"
+UNIT_US_PER_OP = "us/op"
+DEFAULT_DATABASE_URL = "sqlite:///:memory:"
+DEFAULT_SMTP_URL = "smtp://localhost"
+
 RESULTS_DIR = Path(__file__).resolve().parent / "results"
 WARMUP = 10_000
 ROUNDS = 9
@@ -232,7 +237,7 @@ def _handler3(prefix: str, index: int, dep0: type, dep1: type, dep2: type) -> ty
 
 @dataclass(frozen=True)
 class FTSettings:
-    database_url: str = "sqlite:///:memory:"
+    database_url: str = DEFAULT_DATABASE_URL
 
 
 class FTApiClient:
@@ -311,7 +316,7 @@ def scenario_first_touch() -> ScenarioResult:
     rows = [
         ("manual", *_sweep_ms(manual_sweep)),
         ("injex", *_sweep_ms(injex_sweep)),
-        ("doppy-di compiled", *_sweep_ms(doppy_sweep)),
+        (DOPPY_COMPILED, *_sweep_ms(doppy_sweep)),
     ]
 
     try:
@@ -351,7 +356,7 @@ def scenario_first_touch() -> ScenarioResult:
 
 @dataclass(frozen=True)
 class DCSettings:
-    database_url: str = "sqlite:///:memory:"
+    database_url: str = DEFAULT_DATABASE_URL
 
 
 class DCApiClient:
@@ -407,7 +412,7 @@ def scenario_deep_chain() -> ScenarioResult:
     rows = [
         ("manual", *_warm_us(manual_chain, iterations=100_000)),
         ("injex", *_warm_us(lambda: injex_container.resolve(DC_TOP), iterations=100_000)),
-        ("doppy-di compiled", *_warm_us(lambda: plan.get(DC_TOP), iterations=100_000)),
+        (DOPPY_COMPILED, *_warm_us(lambda: plan.get(DC_TOP), iterations=100_000)),
     ]
 
     try:
@@ -431,7 +436,7 @@ def scenario_deep_chain() -> ScenarioResult:
 
     return ScenarioResult(
         name="deep_chain_d16",
-        unit="us/op",
+        unit=UNIT_US_PER_OP,
         method="100k iterations x 9 rounds, warm",
         rows=rows,
         check=check,
@@ -450,8 +455,8 @@ def scenario_deep_chain() -> ScenarioResult:
 
 @dataclass(frozen=True)
 class WSettings:
-    database_url: str = "sqlite:///:memory:"
-    smtp_url: str = "smtp://localhost"
+    database_url: str = DEFAULT_DATABASE_URL
+    smtp_url: str = DEFAULT_SMTP_URL
 
 
 class WApiClient:
@@ -619,7 +624,7 @@ def scenario_wide_service() -> ScenarioResult:
     rows = [
         ("manual", *_warm_us(manual_resolve, iterations=100_000)),
         ("injex", *_warm_us(lambda: injex_container.resolve(WideService), iterations=100_000)),
-        ("doppy-di compiled", *_warm_us(lambda: plan.get(WideService), iterations=100_000)),
+        (DOPPY_COMPILED, *_warm_us(lambda: plan.get(WideService), iterations=100_000)),
     ]
 
     try:
@@ -640,7 +645,7 @@ def scenario_wide_service() -> ScenarioResult:
 
     return ScenarioResult(
         name="wide_service_d10",
-        unit="us/op",
+        unit=UNIT_US_PER_OP,
         method="100k iterations x 9 rounds, warm",
         rows=rows,
         check=check,
@@ -659,7 +664,7 @@ def scenario_wide_service() -> ScenarioResult:
 
 @dataclass(frozen=True)
 class RRSettings:
-    smtp_url: str = "smtp://localhost"
+    smtp_url: str = DEFAULT_SMTP_URL
 
 
 class RRApiClient:
@@ -756,7 +761,7 @@ def scenario_round_robin() -> ScenarioResult:
             *_warm_us(_cycle(injex_container.resolve, RR_ROOTS), iterations=150_000),
         ),
         (
-            "doppy-di compiled",
+            DOPPY_COMPILED,
             *_warm_us(_cycle(plan.get, RR_ROOTS), iterations=150_000),
         ),
     ]
@@ -772,7 +777,7 @@ def scenario_round_robin() -> ScenarioResult:
 
     return ScenarioResult(
         name="round_robin_roots",
-        unit="us/op",
+        unit=UNIT_US_PER_OP,
         method="150k iterations x 9 rounds, warm, 8 roots cycled",
         rows=rows,
         check=check,
@@ -791,12 +796,12 @@ def scenario_round_robin() -> ScenarioResult:
 
 @dataclass(frozen=True)
 class VHDbUrl:
-    value: str = "sqlite:///:memory:"
+    value: str = DEFAULT_DATABASE_URL
 
 
 @dataclass(frozen=True)
 class VHSmtpUrl:
-    value: str = "smtp://localhost"
+    value: str = DEFAULT_SMTP_URL
 
 
 @dataclass(frozen=True)
@@ -905,7 +910,7 @@ def scenario_value_heavy() -> ScenarioResult:
     rows = [
         ("manual", *_warm_us(manual_resolve, iterations=150_000)),
         ("injex", *_warm_us(lambda: injex_container.resolve(VHRoot), iterations=150_000)),
-        ("doppy-di compiled", *_warm_us(lambda: plan.get(VHRoot), iterations=150_000)),
+        (DOPPY_COMPILED, *_warm_us(lambda: plan.get(VHRoot), iterations=150_000)),
     ]
 
     try:
@@ -919,7 +924,7 @@ def scenario_value_heavy() -> ScenarioResult:
 
     return ScenarioResult(
         name="value_heavy_root",
-        unit="us/op",
+        unit=UNIT_US_PER_OP,
         method="150k iterations x 9 rounds, warm",
         rows=rows,
         check=check,
@@ -938,7 +943,7 @@ def scenario_value_heavy() -> ScenarioResult:
 
 @dataclass(frozen=True)
 class SFSettings:
-    database_url: str = "sqlite:///:memory:"
+    database_url: str = DEFAULT_DATABASE_URL
 
 
 class SFService:
@@ -976,7 +981,7 @@ def scenario_singleton_fetch() -> ScenarioResult:
     rows = [
         ("manual", *_warm_us(lambda: sf_service, iterations=250_000)),
         ("injex", *_warm_us(lambda: injex_container.resolve(SFService), iterations=250_000)),
-        ("doppy-di compiled", *_warm_us(lambda: plan.get(SFService), iterations=250_000)),
+        (DOPPY_COMPILED, *_warm_us(lambda: plan.get(SFService), iterations=250_000)),
     ]
 
     try:
@@ -989,7 +994,7 @@ def scenario_singleton_fetch() -> ScenarioResult:
 
     return ScenarioResult(
         name="singleton_fetch_loop",
-        unit="us/op",
+        unit=UNIT_US_PER_OP,
         method="250k iterations x 9 rounds, warm, cached singleton",
         rows=rows,
         check=check,
@@ -1007,7 +1012,7 @@ def scenario_singleton_fetch() -> ScenarioResult:
 
 @dataclass(frozen=True)
 class TGSettings:
-    database_url: str = "sqlite:///:memory:"
+    database_url: str = DEFAULT_DATABASE_URL
 
 
 class TGApiClient:
@@ -1076,7 +1081,7 @@ def scenario_threaded() -> ScenarioResult:
     rows = [
         ("manual", *_threaded_us(lambda: manual_op)),
         ("injex", *_threaded_us(lambda: lambda: injex_container.resolve(TGHandler))),
-        ("doppy-di compiled", *_threaded_us(lambda: lambda: plan.get(TGHandler))),
+        (DOPPY_COMPILED, *_threaded_us(lambda: lambda: plan.get(TGHandler))),
     ]
 
     try:
