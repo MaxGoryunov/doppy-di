@@ -5,6 +5,7 @@ from types import TracebackType
 from typing import Any, AsyncIterator, List, Optional, Type, cast
 
 import pytest
+from conftest import run
 
 from doppy_di import (
     AsyncDependencyInSyncContextError,
@@ -135,8 +136,10 @@ def test_aget_sync_yield_provider_rejected() -> None:
     builder.service("session", make_session)
     container = builder.build()
 
+    coro = container.aget("session")
+
     with pytest.raises(TypeError):
-        asyncio.run(container.aget("session"))
+        run(coro)
 
 
 def test_aget_async_depends_on_sync() -> None:
@@ -159,8 +162,10 @@ def test_aget_sync_factory_returning_awaitable_raises() -> None:
     builder.service("a", lambda: inner())
     container = builder.build()
 
+    coro = container.aget("a")
+
     with pytest.raises(SyncFactoryReturningAwaitableError):
-        asyncio.run(container.aget("a"))
+        run(coro)
 
 
 def test_aget_cancellation_raises_cancelled_error() -> None:
@@ -258,10 +263,9 @@ def test_aget_async_yield_provider_cached_singleton() -> None:
 
 
 def test_aget_async_yield_provider_empty_raises() -> None:
-    async def make_empty() -> AsyncIterator[object]:
-        if True:  # pragma: no cover - never yields by design
-            return
-        yield object()
+    async def make_empty(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never yields by design
+            yield object()
 
     builder = ContainerBuilder()
     builder.service("empty", make_empty)
@@ -270,15 +274,16 @@ def test_aget_async_yield_provider_empty_raises() -> None:
     async def main() -> None:
         await container.aget("empty")
 
+    coro = main()
+
     with pytest.raises(YieldNotCalledError):
-        asyncio.run(main())
+        run(coro)
 
 
 def test_async_scope_empty_yield_raises() -> None:
-    async def make_empty() -> AsyncIterator[object]:
-        if True:  # pragma: no cover - never yields by design
-            return
-        yield object()
+    async def make_empty(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never yields by design
+            yield object()
 
     builder = ContainerBuilder()
     builder.service("empty", make_empty)
@@ -288,8 +293,10 @@ def test_async_scope_empty_yield_raises() -> None:
         async with container.ascope("req") as scope:
             await scope.get("empty")
 
+    coro = main()
+
     with pytest.raises(YieldNotCalledError):
-        asyncio.run(main())
+        run(coro)
 
 
 def test_aget_override_awaitable_resolves() -> None:

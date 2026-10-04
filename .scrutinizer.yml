@@ -1,0 +1,23 @@
+# Scrutinizer CI configuration.
+#
+# Python analysis is scoped to the shipped package. The frozen performance
+# baseline (`_legacy.py`) and the test/benchmark/script trees are excluded so
+# the report tracks shipped code only, mirroring the qlty triage in
+# .qlty/qlty.toml.
+#
+# Pull-request analysis must additionally be enabled in the Scrutinizer
+# repository settings (Configuration -> Pull Requests); this file only controls
+# what the analysis inspects.
+filter:
+  paths:
+    - "src/doppy_di/*.py"
+  excluded_paths:
+    - "src/doppy_di/_legacy.py"
+    - "tests/*"
+    - "benchmarks/*"
+    - "scripts/*"
+
+checks:
+  python:
+    code_rating: true
+    duplicate_code: true

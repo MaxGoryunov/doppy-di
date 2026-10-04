@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, AsyncIterator, Iterator
 
 import pytest
+from conftest import run
 
 from doppy_di import (
     ContainerBuilder,
@@ -66,9 +67,10 @@ def test_missing_dependency_error_enriched_with_source() -> None:
 
 
 def test_async_yield_provider_other_runtime_error_reraises() -> None:
-    async def make_broken() -> AsyncIterator[object]:
+    async def make_broken(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never reached by design
+            yield object()
         raise RuntimeError("boom")
-        yield object()  # pragma: no cover - unreachable
 
     builder = ContainerBuilder()
     builder.service("broken", make_broken)
@@ -77,14 +79,17 @@ def test_async_yield_provider_other_runtime_error_reraises() -> None:
     async def main() -> None:
         await container.aget("broken")
 
+    coro = main()
+
     with pytest.raises(RuntimeError, match="boom"):
-        asyncio.run(main())
+        run(coro)
 
 
 def test_async_scope_yield_other_runtime_error_reraises() -> None:
-    async def make_broken() -> AsyncIterator[object]:
+    async def make_broken(_yield: bool = False) -> AsyncIterator[object]:
+        if _yield:  # pragma: no cover - never reached by design
+            yield object()
         raise RuntimeError("boom-scope")
-        yield object()  # pragma: no cover - unreachable
 
     builder = ContainerBuilder()
     builder.service("broken", make_broken)
@@ -94,8 +99,10 @@ def test_async_scope_yield_other_runtime_error_reraises() -> None:
         async with container.ascope("req") as scope:
             await scope.get("broken")
 
+    coro = main()
+
     with pytest.raises(RuntimeError, match="boom-scope"):
-        asyncio.run(main())
+        run(coro)
 
 
 def test_root_missing_still_raises_service_not_found() -> None:
@@ -188,8 +195,10 @@ def test_factory_error_wraps_async() -> None:
     builder.service("a", boom)
     container = builder.build()
 
+    coro = container.aget("a")
+
     with pytest.raises(FactoryExecutionError) as exc:
-        asyncio.run(container.aget("a"))
+        run(coro)
 
     assert isinstance(exc.value.original_exception, ValueError)
 
@@ -309,8 +318,10 @@ def test_async_resource_finalization_error_flag() -> None:
         async with container.ascope("req") as scope:
             await scope.get("bad")
 
+    coro = main()
+
     with pytest.raises(ResourceFinalizationError):
-        asyncio.run(main())
+        run(coro)
 
 
 def test_scope_violation_error_fields() -> None:
@@ -326,8 +337,10 @@ def test_aget_missing_dependency_has_path() -> None:
     builder.service("b", lambda c: c, deps=["c"])
     container = builder.build()
 
+    coro = container.aget("a")
+
     with pytest.raises(MissingDependencyError) as exc:
-        asyncio.run(container.aget("a"))
+        run(coro)
 
     assert exc.value.key == "c"
     assert "a" in exc.value.resolution_path
@@ -342,8 +355,10 @@ def test_aget_factory_error_wraps() -> None:
     builder.service("a", boom)
     container = builder.build()
 
+    coro = container.aget("a")
+
     with pytest.raises(FactoryExecutionError) as exc:
-        asyncio.run(container.aget("a"))
+        run(coro)
 
     assert isinstance(exc.value.original_exception, ValueError)
     assert "a" in exc.value.resolution_path
@@ -355,8 +370,10 @@ def test_aget_deferred_cycle_detected() -> None:
     builder.service("b", lambda a: a, deps=["a"])
     container = builder.build()
 
+    coro = container.aget("a")
+
     with pytest.raises(DependencyCycleError):
-        asyncio.run(container.aget("a"))
+        run(coro)
 
 
 def test_aget_async_scope_missing_dependency_has_scope() -> None:
@@ -368,8 +385,10 @@ def test_aget_async_scope_missing_dependency_has_scope() -> None:
         async with container.ascope("req") as scope:
             await scope.get("a")
 
+    coro = main()
+
     with pytest.raises(MissingDependencyError) as exc:
-        asyncio.run(main())
+        run(coro)
 
     assert exc.value.scope == "req"
 
