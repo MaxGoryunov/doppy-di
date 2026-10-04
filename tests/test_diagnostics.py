@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, AsyncIterator, Iterator
 
 import pytest
+from conftest import run
 
 from doppy_di import (
     ContainerBuilder,
@@ -81,7 +82,7 @@ def test_async_yield_provider_other_runtime_error_reraises() -> None:
     coro = main()
 
     with pytest.raises(RuntimeError, match="boom"):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_async_scope_yield_other_runtime_error_reraises() -> None:
@@ -101,7 +102,7 @@ def test_async_scope_yield_other_runtime_error_reraises() -> None:
     coro = main()
 
     with pytest.raises(RuntimeError, match="boom-scope"):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_root_missing_still_raises_service_not_found() -> None:
@@ -197,7 +198,7 @@ def test_factory_error_wraps_async() -> None:
     coro = container.aget("a")
 
     with pytest.raises(FactoryExecutionError) as exc:
-        asyncio.run(coro)
+        run(coro)
 
     assert isinstance(exc.value.original_exception, ValueError)
 
@@ -320,7 +321,7 @@ def test_async_resource_finalization_error_flag() -> None:
     coro = main()
 
     with pytest.raises(ResourceFinalizationError):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_scope_violation_error_fields() -> None:
@@ -339,7 +340,7 @@ def test_aget_missing_dependency_has_path() -> None:
     coro = container.aget("a")
 
     with pytest.raises(MissingDependencyError) as exc:
-        asyncio.run(coro)
+        run(coro)
 
     assert exc.value.key == "c"
     assert "a" in exc.value.resolution_path
@@ -357,7 +358,7 @@ def test_aget_factory_error_wraps() -> None:
     coro = container.aget("a")
 
     with pytest.raises(FactoryExecutionError) as exc:
-        asyncio.run(coro)
+        run(coro)
 
     assert isinstance(exc.value.original_exception, ValueError)
     assert "a" in exc.value.resolution_path
@@ -372,7 +373,7 @@ def test_aget_deferred_cycle_detected() -> None:
     coro = container.aget("a")
 
     with pytest.raises(DependencyCycleError):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_aget_async_scope_missing_dependency_has_scope() -> None:
@@ -387,7 +388,7 @@ def test_aget_async_scope_missing_dependency_has_scope() -> None:
     coro = main()
 
     with pytest.raises(MissingDependencyError) as exc:
-        asyncio.run(coro)
+        run(coro)
 
     assert exc.value.scope == "req"
 

@@ -5,6 +5,7 @@ from types import TracebackType
 from typing import Any, AsyncIterator, List, Optional, Type, cast
 
 import pytest
+from conftest import run
 
 from doppy_di import (
     AsyncDependencyInSyncContextError,
@@ -138,7 +139,7 @@ def test_aget_sync_yield_provider_rejected() -> None:
     coro = container.aget("session")
 
     with pytest.raises(TypeError):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_aget_async_depends_on_sync() -> None:
@@ -164,7 +165,7 @@ def test_aget_sync_factory_returning_awaitable_raises() -> None:
     coro = container.aget("a")
 
     with pytest.raises(SyncFactoryReturningAwaitableError):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_aget_cancellation_raises_cancelled_error() -> None:
@@ -276,7 +277,7 @@ def test_aget_async_yield_provider_empty_raises() -> None:
     coro = main()
 
     with pytest.raises(YieldNotCalledError):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_async_scope_empty_yield_raises() -> None:
@@ -295,7 +296,7 @@ def test_async_scope_empty_yield_raises() -> None:
     coro = main()
 
     with pytest.raises(YieldNotCalledError):
-        asyncio.run(coro)
+        run(coro)
 
 
 def test_aget_override_awaitable_resolves() -> None:
