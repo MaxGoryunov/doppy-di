@@ -41,7 +41,7 @@ def _find_container(module: Any) -> Any:
             return obj
 
     # scan module for any Container or ContainerBuilder instances
-    for _, value in list(module.__dict__.items()):
+    for _, value in module.__dict__.items():  # NOSONAR python:S7504 dict view iterable
         if isinstance(value, (Container, ContainerBuilder)):
             return value
 
