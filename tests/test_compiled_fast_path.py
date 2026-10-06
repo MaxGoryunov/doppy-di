@@ -84,7 +84,7 @@ def _build_benchmark_container() -> Any:
     return builder.build()
 
 
-def test_plan_resolves_without_container_delegation() -> None:
+def test_plan_resolves_without_container_delegation(monkeypatch: Any) -> None:
 
     container = _build_benchmark_container()
 
@@ -97,13 +97,9 @@ def test_plan_resolves_without_container_delegation() -> None:
 
     original_map: dict[object, object] = container.config.ruleset.map
 
-    container.config.ruleset.map = _BoomMap(original_map)  # type: ignore[assignment]
+    monkeypatch.setattr(container.config.ruleset, "map", _BoomMap(original_map))
 
-    try:
-        obj = plan.get(RegisterUser)
-
-    finally:
-        container.config.ruleset.map = original_map  # type: ignore[assignment]
+    obj = plan.get(RegisterUser)
 
     assert isinstance(obj, RegisterUser)
 
@@ -522,31 +518,21 @@ def test_plan_aget_delegates() -> None:
     assert isinstance(obj, RegisterUser)
 
 
-def test_plan_no_reflection_after_compile() -> None:
+def test_plan_no_reflection_after_compile(monkeypatch: Any) -> None:
 
     container = _build_benchmark_container()
 
     plan = container.compile()
 
-    original_signature = inspect.signature
-
-    original_get_type_hints = typing.get_type_hints
-
     def boom(*args: Any, **kwargs: Any) -> Any:
 
         raise AssertionError("reflection called on hot path")
 
-    inspect.signature = boom  # type: ignore[assignment]
+    monkeypatch.setattr(inspect, "signature", boom)
 
-    typing.get_type_hints = boom  # type: ignore[assignment]
+    monkeypatch.setattr(typing, "get_type_hints", boom)
 
-    try:
-        obj = plan.get(RegisterUser)
-
-    finally:
-        inspect.signature = original_signature  # type: ignore[assignment]
-
-        typing.get_type_hints = original_get_type_hints  # type: ignore[assignment]
+    obj = plan.get(RegisterUser)
 
     assert isinstance(obj, RegisterUser)
 

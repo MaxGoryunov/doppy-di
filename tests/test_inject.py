@@ -4,6 +4,7 @@ import asyncio
 from typing import Any
 
 import pytest
+from conftest import run
 
 from doppy_di import (
     ContainerBuilder,
@@ -217,7 +218,7 @@ def test_inject_async_missing_annotation_raises(container: Any) -> None:
         return service
 
     with pytest.raises(MissingAnnotationError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_async_unannotated_passed_explicitly(container: Any) -> None:
@@ -239,7 +240,7 @@ def test_inject_async_none_annotation_raises(container: Any) -> None:
         return service
 
     with pytest.raises(MissingAnnotationError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_async_skips_varargs_and_kwargs(container: Any) -> None:
@@ -280,7 +281,7 @@ def test_inject_async_unresolvable_raises(container: Any) -> None:
         return service
 
     with pytest.raises(UnresolvableDependencyError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_async_depends_no_annotation_raises(container: Any) -> None:
@@ -289,7 +290,7 @@ def test_inject_async_depends_no_annotation_raises(container: Any) -> None:
         return service
 
     with pytest.raises(MissingAnnotationError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_async_depends_unresolvable_raises(container: Any) -> None:
@@ -298,7 +299,7 @@ def test_inject_async_depends_unresolvable_raises(container: Any) -> None:
         return service
 
     with pytest.raises(UnresolvableDependencyError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_async_depends_type_unresolvable_raises(container: Any) -> None:
@@ -309,7 +310,7 @@ def test_inject_async_depends_type_unresolvable_raises(container: Any) -> None:
         return service
 
     with pytest.raises(UnresolvableDependencyError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_passes_explicit_args(container: Any) -> None:
@@ -425,7 +426,7 @@ def test_inject_scope_async_unresolvable_raises(container: Any) -> None:
         return service
 
     with pytest.raises(UnresolvableDependencyError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_scope_async_unannotated_raises(container: Any) -> None:
@@ -434,7 +435,7 @@ def test_inject_scope_async_unannotated_raises(container: Any) -> None:
         return service
 
     with pytest.raises(MissingAnnotationError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_scope_async_passes_explicit(container: Any) -> None:
@@ -456,7 +457,7 @@ def test_inject_scope_async_depends_no_annotation_raises(
         return service
 
     with pytest.raises(MissingAnnotationError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_scope_async_depends_type_unresolvable_raises(
@@ -469,7 +470,7 @@ def test_inject_scope_async_depends_type_unresolvable_raises(
         return service
 
     with pytest.raises(UnresolvableDependencyError):
-        asyncio.run(handle())
+        run(handle())
 
 
 def test_inject_scope_async_depends_callable(container: Any) -> None:
