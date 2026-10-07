@@ -289,7 +289,7 @@ def test_children_first_policy_deep_nested_recursion() -> None:
         None,
     )
 
-    # RecursionError would propagate and fail the test naturally
+    # RecursionError fails test naturally  # NOSONAR python:S8714 error-path test
     a = container.get("a")
     assert hasattr(a, "child")
     assert a.child is None

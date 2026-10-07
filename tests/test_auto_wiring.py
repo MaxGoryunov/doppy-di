@@ -3,7 +3,7 @@
 import importlib
 import sys
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -138,7 +138,7 @@ def test_unresolvable_dependency_raises() -> None:
         container.get(Service)
 
 
-def test_scan_recursive_package(tmp_path: Path) -> None:
+def test_scan_recursive_package(tmp_path: Path, monkeypatch: Any) -> None:
     name = "_doppy_scan_test_pkg"
     pkg_dir = tmp_path / name
     pkg_dir.mkdir()
@@ -148,18 +148,15 @@ def test_scan_recursive_package(tmp_path: Path) -> None:
         "_SubService = make_injectable_class('SubService')\n",
         encoding="utf-8",
     )
-    sys.path.insert(0, str(tmp_path))
-    try:
-        importlib.import_module(name)
-        sub = importlib.import_module(f"{name}.sub")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    importlib.import_module(name)
+    sub = importlib.import_module(f"{name}.sub")
 
-        builder = ContainerBuilder()
-        container = builder.build()
-        container.scan(name)
+    builder = ContainerBuilder()
+    container = builder.build()
+    container.scan(name)
 
-        assert container.has(sub._SubService)
-    finally:
-        for mod in list(sys.modules):
-            if mod == name or mod.startswith(name + "."):
-                del sys.modules[mod]
-        sys.path.remove(str(tmp_path))
+    assert container.has(sub._SubService)
+    for mod in list(sys.modules):
+        if mod == name or mod.startswith(name + "."):
+            del sys.modules[mod]

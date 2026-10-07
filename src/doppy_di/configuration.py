@@ -271,7 +271,7 @@ class AsyncConfiguration(Configuration):
     """
 
     def _rule(self, key: str, make: Any, *, is_async: bool = False) -> Rule:
-        async def async_make() -> Any:
+        async def async_make() -> Any:  # NOSONAR python:S7503 async dispatch contract
             return make()
 
         return Rule(key, async_make, "transient", ())

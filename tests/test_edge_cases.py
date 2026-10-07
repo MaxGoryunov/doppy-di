@@ -255,9 +255,7 @@ def test_unknown_lifetime_not_cached_for_value() -> None:
     # A valid rule still registers fine
     rules = RuleSet()
     rules.add("x", Rule("x", lambda: object()))
-    assert (
-        "x" in rules.map
-    )  # NOSONAR: S7500 FP — asserting registration side effect, element access needed
+    assert "x" in rules.map  # NOSONAR python:S7500 registration check needs access
 
 
 # ── H6: LoggingContainer catches BaseException ─────────────────────────
@@ -281,7 +279,7 @@ def test_logging_container_base_exception_not_caught() -> None:
 
     container = LoggingContainer(base, log)
 
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit):  # NOSONAR python:S8714 error-path assertion
         container.get("x")
 
     # SystemExit is not Exception, so log should NOT contain error message

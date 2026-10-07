@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, List, Tuple
 
 import pytest
+from conftest import run
 
 from doppy_di import ContainerBuilder, injectable
 
@@ -72,7 +73,7 @@ def test_parallel_cancels_on_failure() -> None:
         await container.get_many(["bad", "other"], parallel=True)
 
     with pytest.raises(RuntimeError):
-        asyncio.run(main())
+        run(main())
 
 
 def test_aget_resolves_async_factory() -> None:
@@ -227,7 +228,7 @@ def test_aget_missing_key_raises() -> None:
     container = builder.build()
 
     with pytest.raises(KeyError):
-        asyncio.run(container.aget("missing"))
+        run(container.aget("missing"))
 
 
 def test_aget_async_yield_provider_resolves() -> None:
