@@ -67,7 +67,7 @@ def test_logging_container_base_exception_not_caught() -> None:
 
     container = LoggingContainer(base, log)
 
-    with pytest.raises(SystemExit):  # NOSONAR python:S8714 error-path assertion
+    with pytest.raises(SystemExit):  # NOSONAR(S8714) error-path assertion
         container.get("x")
 
     assert any("error" in event for event in events)

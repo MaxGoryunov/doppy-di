@@ -143,7 +143,7 @@ def test_install_duplicate_fail_policy() -> None:
         def configure(self, binder: ModuleBinder) -> None:
             binder.value("dup", 2)
 
-    with pytest.raises(DuplicateRegistrationError):
+    with pytest.raises(DuplicateRegistrationError):  # NOSONAR(S5778)
         builder.install(Dup(), Dup2(), duplicate_policy=DuplicateKeyPolicy.FAIL)
 
 
@@ -264,7 +264,7 @@ def test_container_install_duplicate_fail_on_plain_container() -> None:
             binder.value("dup", 2)
 
     child = container.create_child()
-    with pytest.raises(DuplicateRegistrationError):
+    with pytest.raises(DuplicateRegistrationError):  # NOSONAR(S5778)
         child.install(D1(), D2(), duplicate_policy=DuplicateKeyPolicy.FAIL)
 
 

@@ -229,12 +229,13 @@ def test_unbound_provider_dependency_raises() -> None:
     services = Container()
     unbound = Factory(UserRepository)
 
+    factory = Factory(UserService, repo=unbound)
     with pytest.raises(ValueError, match="not bound"):
-        services.repo = Factory(UserService, repo=unbound)
+        services.repo = factory
 
 
 def test_provider_base_to_rules_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(NotImplementedError):  # NOSONAR(S5778)
         Provider().to_rules("x")
 
 

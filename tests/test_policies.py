@@ -140,7 +140,7 @@ def test_eager_policy_raises_on_async_rule() -> None:
     builder.service("a", make_async)
     builder.service("b", lambda: 2)
 
-    with pytest.raises(AsyncDependencyInSyncContextError):
+    with pytest.raises(AsyncDependencyInSyncContextError):  # NOSONAR(S5778)
         builder.build(policy=EagerPolicy())
 
 
