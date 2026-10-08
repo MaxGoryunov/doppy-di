@@ -58,6 +58,22 @@ test_patterns = [
 [smells]
 mode = "comment"
 
+# Smells are structural (complexity/duplication), not lint. Baselines,
+# benchmarks and one-off scripts are deliberately not refactored:
+# - `_legacy.py`: frozen perf baseline for compiled-plan comparison
+#   (issues/45-resolve-hotpath-optimizations.md). Refactoring it would
+#   invalidate the baseline.
+# - `benchmarks/`: throwaway measurement scripts, not shipped code.
+# - `scripts/`: local dev tooling, not shipped code.
+[[triage]]
+match.plugins = ["qlty"]
+match.file_patterns = [
+  "src/doppy_di/_legacy.py",
+  "benchmarks/**",
+  "scripts/**",
+]
+set.ignored = true
+
 [[source]]
 name = "default"
 default = true

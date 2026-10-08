@@ -108,6 +108,31 @@ def _member_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
     return _dep_key(dep)
 
 
+def _aggregate_deps(providers: Tuple[Union[Key, "Provider"], ...]) -> Tuple[Key, ...]:
+    """Collect registration keys for aggregate members.
+
+    Shared by ``ListOf``/``SetOf``/``DictOf``. Runs only on assignment
+    (cold path), never during resolution.
+    """
+    return tuple(dep for dep in (_member_key(p) for p in providers) if dep is not None)
+
+
+def _aggregate_rule(
+    provider: "Provider",
+    name: str,
+    providers: Tuple[Union[Key, "Provider"], ...],
+    aggregate: Callable[..., Any],
+) -> List["Rule"]:
+    """Build a transient aggregate rule for ``name``.
+
+    Shared by ``ListOf``/``SetOf``. Runs only on assignment
+    (cold path), never during resolution.
+    """
+    provider.key = name
+    deps = _aggregate_deps(providers)
+    return [Rule(name, lambda *args: aggregate(args), "transient", deps)]
+
+
 class SelectorContext:
     """Context passed to ``Selector.selector_fn`` at resolution time.
 
@@ -612,9 +637,7 @@ class ListOf(Provider):
         self.providers = providers
 
     def to_rules(self, name: str) -> List[Rule]:
-        self.key = name
-        deps = tuple(dep for dep in (_member_key(p) for p in self.providers) if dep is not None)
-        return [Rule(name, lambda *args: list(args), "transient", deps)]
+        return _aggregate_rule(self, name, self.providers, list)
 
 
 class SetOf(Provider):
@@ -635,9 +658,7 @@ class SetOf(Provider):
         self.providers = providers
 
     def to_rules(self, name: str) -> List[Rule]:
-        self.key = name
-        deps = tuple(dep for dep in (_member_key(p) for p in self.providers) if dep is not None)
-        return [Rule(name, lambda *args: set(args), "transient", deps)]
+        return _aggregate_rule(self, name, self.providers, set)
 
 
 class DictOf(Provider):
@@ -659,9 +680,7 @@ class DictOf(Provider):
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
-        deps = tuple(
-            dep for dep in (_member_key(p) for p in self.providers.values()) if dep is not None
-        )
+        deps = _aggregate_deps(tuple(self.providers.values()))
         keys = list(self.providers.keys())
         return [Rule(name, lambda *args: dict(zip(keys, args)), "transient", deps)]
 

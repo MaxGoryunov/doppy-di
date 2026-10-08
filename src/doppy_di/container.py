@@ -659,6 +659,37 @@ class Rule:
         )
 
 
+def _dfs_no_cycle(
+    start: Key,
+    graph: Dict[Key, Tuple[Key, ...]],
+    known: Dict[Key, Rule],
+) -> None:
+    """Raise CycleError when ``start`` can reach itself through ``graph``.
+
+    Shared depth-first search backing both rule-set implementations.
+    Runs only on registration (cold path), never during resolution.
+    """
+    stack: List[Key] = []
+    on_stack: set[Key] = set()
+    visited: set[Key] = set()
+
+    def dfs(node: Key) -> None:
+        if node in on_stack:
+            raise DependencyCycleError([*stack, node])
+        if node in visited:
+            return
+        visited.add(node)
+        on_stack.add(node)
+        stack.append(node)
+        for dep in graph.get(node, ()):
+            if dep in known:
+                dfs(dep)
+        stack.pop()
+        on_stack.remove(node)
+
+    dfs(start)
+
+
 class RuleSet:
     """Immutable-by-convention rule storage and dependency graph.
 
@@ -777,25 +808,7 @@ class RuleSet:
 
     def _check_cycle(self, start: Key) -> None:
         """Check graph cycles from the given start node."""
-        stack: List[Key] = []
-        on_stack: set[Key] = set()
-        visited: set[Key] = set()
-
-        def dfs(node: Key) -> None:
-            if node in on_stack:
-                raise DependencyCycleError([*stack, node])
-            if node in visited:
-                return
-            visited.add(node)
-            on_stack.add(node)
-            stack.append(node)
-            for dep in self.graph.get(node, ()):
-                if dep in self.map:
-                    dfs(dep)
-            stack.pop()
-            on_stack.remove(node)
-
-        dfs(start)
+        _dfs_no_cycle(start, self.graph, self.map)
 
 
 class RuleSetProtocol(Protocol):
@@ -943,25 +956,7 @@ class CompositeRuleSet:
 
     def _check_cycle(self, start: Key) -> None:
         """Check graph cycles from the given start node."""
-        stack: List[Key] = []
-        on_stack: set[Key] = set()
-        visited: set[Key] = set()
-
-        def dfs(node: Key) -> None:
-            if node in on_stack:
-                raise DependencyCycleError([*stack, node])
-            if node in visited:
-                return
-            visited.add(node)
-            on_stack.add(node)
-            stack.append(node)
-            for dep in self.graph.get(node, ()):
-                if dep in self.map:
-                    dfs(dep)
-            stack.pop()
-            on_stack.remove(node)
-
-        dfs(start)
+        _dfs_no_cycle(start, self.graph, self.map)
 
 
 def _rule_signature(rule: Rule) -> Tuple[Any, ...]:
