@@ -72,9 +72,9 @@ def test_parallel_cancels_on_failure() -> None:
     async def main() -> None:
         await container.get_many(["bad", "other"], parallel=True)
 
-    with pytest.raises(RuntimeError):  # noqa: PT012
-        coro = main()
-        run(coro)  # NOSONAR(S5778)
+    coro = main()
+    with pytest.raises(RuntimeError):
+        run(coro)
 
 
 def test_aget_resolves_async_factory() -> None:
