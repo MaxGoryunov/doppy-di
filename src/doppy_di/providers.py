@@ -114,11 +114,8 @@ def _aggregate_deps(providers: Tuple[Union[Key, "Provider"], ...]) -> Tuple[Key,
     Shared by ``ListOf``/``SetOf``/``DictOf``. Runs only on assignment
     (cold path), never during resolution.
     """
-    return tuple(
-        resolved_key
-        for resolved_key in (_member_key(candidate) for candidate in providers)
-        if resolved_key is not None
-    )
+    member_keys = [_member_key(candidate) for candidate in providers]
+    return tuple(resolved_key for resolved_key in member_keys if resolved_key is not None)
 
 
 def _aggregate_rule(
@@ -222,11 +219,11 @@ class Factory(Provider):
         self.key = name
         member_keys = [_dep_key(candidate) for candidate in self.dependencies]
         deps = tuple(resolved_key for resolved_key in member_keys if resolved_key is not None)
+        lifetime = "singleton" if isinstance(self.factory, type) else "transient"
+        rules = [Rule(name, self.factory, lifetime, deps)]
         if isinstance(self.factory, type):
-            rules = [Rule(name, self.factory, "singleton", deps)]
             rules.append(Rule(self.factory, _identity, "singleton", (name,)))
-            return rules
-        return [Rule(name, self.factory, "transient", deps)]
+        return rules
 
 
 class Singleton(Provider):
