@@ -165,26 +165,32 @@ def _wrap_singleton(
     Reads/writes the live container cache so identity, thread-safety and
     override-visible semantics match :meth:`Container.get`.
     """
-    single = container.single
-    lock = container.lock
-    cell = [_MISSING]
+    single_cache: Dict[Key, Any] = container.single
+    container_lock = container.lock
+    singleton_key: Key = key
+    cell: List[Any] = [_MISSING]
 
-    def _maker() -> Any:
-        value = cell[0]
+    def _maker(
+        _cell: List[Any] = cell,
+        _single: Dict[Key, Any] = single_cache,
+        _lock: Any = container_lock,
+        _skey: Key = singleton_key,
+    ) -> Any:
+        value = _cell[0]
         if value is not _MISSING:
             return value
-        cached = single.get(key, _MISSING)
+        cached = _single.get(_skey, _MISSING)
         if cached is not _MISSING:
-            cell[0] = cached
+            _cell[0] = cached
             return cached
         value = inner()
-        with lock:
-            existing = single.get(key, _MISSING)
+        with _lock:
+            existing = _single.get(_skey, _MISSING)
             if existing is not _MISSING:
                 value = existing
             else:
-                single[key] = value
-        cell[0] = value
+                _single[_skey] = value
+        _cell[0] = value
         return value
 
     return _maker
@@ -914,18 +920,23 @@ def _build_frozen_resolver(
 
     exprs: Dict[int, _NoArgExpr] = {}
 
-    def expr_for(idx: int) -> _NoArgExpr:
-        if idx in exprs:
-            return exprs[idx]
-        spec = nodes[idx]
+    def expr_for(
+        idx: int,
+        _cache: Dict[int, _NoArgExpr] = exprs,
+        _specs: Tuple[_NodeSpec, ...] = nodes,
+        _frozen: Dict[Key, Any] = frozen,
+    ) -> _NoArgExpr:
+        if idx in _cache:
+            return _cache[idx]
+        spec = _specs[idx]
         if spec.lifetime == "singleton":
-            e = _emit_const(frozen.get(spec.key, _MISSING))
+            e = _emit_const(_frozen.get(spec.key, _MISSING))
         else:
             e = _emit_make(
                 cast(Callable[..., Any], spec.make),
-                tuple(expr_for(d) for d in spec.deps_idx),
+                tuple(expr_for(dep_idx) for dep_idx in spec.deps_idx),
             )
-        exprs[idx] = e
+        _cache[idx] = e
         return e
 
     root_expr = expr_for(root_idx)

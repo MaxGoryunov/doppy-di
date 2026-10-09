@@ -499,10 +499,13 @@ def inject(
     def decorate(func: Callable[..., Any]) -> Callable[..., Any]:
         plan: Optional[_Plan] = None
 
-        def _get_plan() -> _Plan:
+        def _get_plan(
+            _builder: Callable[[Callable[..., Any]], _Plan] = _build_plan,
+            _target: Callable[..., Any] = func,
+        ) -> _Plan:
             nonlocal plan
             if plan is None:
-                plan = _build_plan(func)
+                plan = _builder(_target)
             return plan
 
         if inspect.iscoroutinefunction(func):

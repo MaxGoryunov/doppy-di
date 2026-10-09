@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("doppy_di.container")
 
-_RESOLUTION_PATH: ContextVar[Optional[List[Key]]] = ContextVar("path", default=None)
+_RESOLUTION_PATH: ContextVar[Optional[List["Key"]]] = ContextVar("path", default=None)
 _ACTIVE_REQUEST_RESOLVER: ContextVar[Optional[object]] = ContextVar(
     "active_request_resolver", default=None
 )
@@ -2012,12 +2012,12 @@ class Container:
             resolved = await asyncio.gather(
                 *(
                     self.aget(
-                        dep,
+                        level_dep,
                         _stacks=stacks,
                         _scope_name=_scope_name,
                         _path=path,
                     )
-                    for dep in level
+                    for level_dep in level
                 )
             )
             args_by_key.update(dict(zip(level, resolved)))
@@ -2191,7 +2191,7 @@ class Container:
 
         results: Dict[Key, Any] = {}
         for level in levels:
-            resolved = await asyncio.gather(*(self.aget(key) for key in level))
+            resolved = await asyncio.gather(*(self.aget(level_key) for level_key in level))
             results.update(dict(zip(level, resolved)))
         return [results[key] for key in keys]
 
@@ -2667,7 +2667,7 @@ class Container:
         for key, rule in self.config.ruleset.map.items():
             rules[repr(key)] = {
                 "lifetime": rule.lifetime,
-                "deps": [repr(dep) for dep in rule.deps],
+                "deps": [repr(dependency) for dependency in rule.deps],
                 "scope": rule.scope,
                 "yield": rule.yield_provider or rule.async_yield_provider,
                 "nested": rule.nested,

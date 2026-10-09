@@ -114,7 +114,11 @@ def _aggregate_deps(providers: Tuple[Union[Key, "Provider"], ...]) -> Tuple[Key,
     Shared by ``ListOf``/``SetOf``/``DictOf``. Runs only on assignment
     (cold path), never during resolution.
     """
-    return tuple(dep for dep in (_member_key(p) for p in providers) if dep is not None)
+    return tuple(
+        resolved_key
+        for resolved_key in (_member_key(candidate) for candidate in providers)
+        if resolved_key is not None
+    )
 
 
 def _aggregate_rule(
@@ -216,7 +220,8 @@ class Factory(Provider):
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
-        deps = tuple(dep for dep in (_dep_key(d) for d in self.dependencies) if dep is not None)
+        member_keys = [_dep_key(candidate) for candidate in self.dependencies]
+        deps = tuple(resolved_key for resolved_key in member_keys if resolved_key is not None)
         if isinstance(self.factory, type):
             rules = [Rule(name, self.factory, "singleton", deps)]
             rules.append(Rule(self.factory, _identity, "singleton", (name,)))
@@ -247,7 +252,8 @@ class Singleton(Provider):
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
-        deps = tuple(dep for dep in (_dep_key(d) for d in self.dependencies) if dep is not None)
+        member_keys = [_dep_key(candidate) for candidate in self.dependencies]
+        deps = tuple(resolved_key for resolved_key in member_keys if resolved_key is not None)
         rules = [Rule(name, self.factory, "singleton", deps)]
         if isinstance(self.factory, type):
             rules.append(Rule(self.factory, _identity, "singleton", (name,)))
@@ -281,7 +287,8 @@ class Scoped(Provider):
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
-        deps = tuple(dep for dep in (_dep_key(d) for d in self.dependencies) if dep is not None)
+        member_keys = [_dep_key(candidate) for candidate in self.dependencies]
+        deps = tuple(resolved_key for resolved_key in member_keys if resolved_key is not None)
         rules = [Rule(name, self.factory, "transient", deps, scope=self.scope)]
         if isinstance(self.factory, type):
             rules.append(Rule(self.factory, _identity, "transient", (name,)))
@@ -402,7 +409,8 @@ class Assisted(Provider):
         self.key = name
         _, annotations, injected, external, unannotated = self._plan
         injected_order = [n for n in inspect.signature(self.factory).parameters if n in injected]
-        deps = tuple(dep for dep in (_dep_key(d) for d in self.dependencies) if dep is not None)
+        member_keys = [_dep_key(candidate) for candidate in self.dependencies]
+        deps = tuple(resolved_key for resolved_key in member_keys if resolved_key is not None)
         container_dep_keys = tuple(_annotation_key(annotations[n]) for n in injected_order)
         injected_index = {n: i for i, n in enumerate(injected_order)}
         external_names = set(external) | set(unannotated)
