@@ -303,7 +303,7 @@ def test_policy_with_missing_dependency_keeps_error() -> None:
     builder.service("a", lambda b: b, deps=["b"])
     container = builder.build(policy=ResolutionParentFirstPolicy())
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError):  # NOSONAR(S5778)
         container.get("a")
 
 

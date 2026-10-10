@@ -340,12 +340,12 @@ def test_get_container_builder() -> None:
 
 def test_get_container_duplicate_error() -> None:
     err = DuplicateRegistrationError("x")
-    with pytest.raises(DuplicateRegistrationError):
+    with pytest.raises(DuplicateRegistrationError):  # NOSONAR(S5778)
         _get_container(err)
 
 
 def test_get_container_invalid() -> None:
-    with pytest.raises(click.ClickException):
+    with pytest.raises(click.ClickException):  # NOSONAR(S5778)
         _get_container(object())
 
 

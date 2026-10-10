@@ -73,7 +73,7 @@ def test_parallel_cancels_on_failure() -> None:
         await container.get_many(["bad", "other"], parallel=True)
 
     coro = main()
-    with pytest.raises(RuntimeError):
+    with pytest.raises(RuntimeError):  # NOSONAR(S5778)
         run(coro)
 
 
@@ -229,7 +229,7 @@ def test_aget_missing_key_raises() -> None:
     container = builder.build()
 
     coro = container.aget("missing")
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError):  # NOSONAR(S5778)
         run(coro)  # NOSONAR(S5778)
 
 

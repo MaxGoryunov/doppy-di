@@ -55,7 +55,7 @@ def test_child_rules_do_not_leak_into_parent() -> None:
     child = parent.create_child()
     child.config.ruleset.add("extra", Rule("extra", lambda: 1))
     assert child.get("extra") == 1
-    with pytest.raises(ServiceNotFoundError):
+    with pytest.raises(ServiceNotFoundError):  # NOSONAR(S5778)
         parent.get("extra")
 
 
@@ -171,7 +171,7 @@ def test_child_missing_dep_still_errors() -> None:
     parent = ContainerBuilder().build()
     child = parent.create_child()
     child.config.ruleset.add("svc", Rule("svc", lambda db: db, deps=("missing",)))
-    with pytest.raises(Exception, match="missing"):
+    with pytest.raises(Exception, match="missing"):  # NOSONAR(S5778)
         child.compile()
 
 
@@ -247,7 +247,7 @@ def test_child_singleton_cache_get_and_getitem() -> None:
     assert cache.get("local") == "l"
     assert cache["x"] == "px"
     assert cache["local"] == "l"
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError):  # NOSONAR(S5778)
         cache["missing"]
 
 
