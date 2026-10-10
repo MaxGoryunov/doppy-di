@@ -236,7 +236,7 @@ def test_unknown_lifetime_not_cached() -> None:
     with pytest.raises(ValueError, match="Unknown lifetime"):
         builder.service(
             "x", factory, lifetime="per_request"
-        )  # NOSONAR: S5778 FP — 'factory' defined on line above does not raise; only 'service' does
+        )  # NOSONAR(S5778) FP — 'factory' defined on line above does not raise; only 'service' does
 
 
 def test_unknown_lifetime_not_cached_for_value() -> None:
@@ -250,12 +250,12 @@ def test_unknown_lifetime_not_cached_for_value() -> None:
         with pytest.raises(ValueError, match="Unknown lifetime"):
             Rule(
                 "x", factory, lifetime=bad_lifetime
-            )  # NOSONAR: S5778 FP — parametrized loop, single raising call per iteration
+            )  # NOSONAR(S5778) FP — parametrized loop, single raising call per iteration
 
     # A valid rule still registers fine
     rules = RuleSet()
     rules.add("x", Rule("x", lambda: object()))
-    assert "x" in rules.map  # NOSONAR python:S7500 registration check needs access
+    assert "x" in rules.map  # NOSONAR(S7500) registration check needs access
 
 
 # ── H6: LoggingContainer catches BaseException ─────────────────────────
@@ -279,7 +279,7 @@ def test_logging_container_base_exception_not_caught() -> None:
 
     container = LoggingContainer(base, log)
 
-    with pytest.raises(SystemExit):  # NOSONAR python:S8714 error-path assertion
+    with pytest.raises(SystemExit):  # NOSONAR(S8714) error-path assertion
         container.get("x")
 
     # SystemExit is not Exception, so log should NOT contain error message
@@ -329,7 +329,7 @@ def test_nested_validation_chain_no_recursion() -> None:
     # validate_nested will fail because Node has no 'a' attr,
     # but that's a separate issue — we test no infinite loop
     # NestedRuleError expected; RecursionError would propagate and fail
-    # NOSONAR S5778 FP: container.get is the only raising call here.
+    # NOSONAR(S5778) FP: container.get is the only raising call here.
     with pytest.raises(NestedRuleError):
         container.get("root")
 

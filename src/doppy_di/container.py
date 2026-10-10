@@ -57,7 +57,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("doppy_di.container")
 
-_RESOLUTION_PATH: ContextVar[Optional[List[Key]]] = ContextVar("path", default=None)
+_RESOLUTION_PATH: ContextVar[Optional[List["Key"]]] = ContextVar("path", default=None)
 _ACTIVE_REQUEST_RESOLVER: ContextVar[Optional[object]] = ContextVar(
     "active_request_resolver", default=None
 )
@@ -84,7 +84,7 @@ class KeyProtocol(Protocol):
     def __eq__(self, other: object) -> bool: ...
 
 
-Key = Union[str, type, KeyProtocol, Tuple[Any, str]]
+Key = Union[str, type, KeyProtocol, Tuple[Any, str]]  # noqa: UP007 — runtime alias, py39-style Union required
 Lifetime = str
 
 TracerFn = Callable[[Key, float, bool, Optional[str]], None]
@@ -215,8 +215,9 @@ class SyncFactoryReturningAwaitableError(Exception):
 class ResolutionCancelledError(asyncio.CancelledError):
     """Raised when ``aget()`` is cancelled after partially creating resources."""
 
-    def __init__(self, key: Key) -> None:
+    def __init__(self, key: Key, cancelled: asyncio.CancelledError | None = None) -> None:
         self.key = key
+        self.cancelled = cancelled
         super().__init__(f"Resolution of {key!r} was cancelled")
 
 
@@ -659,6 +660,37 @@ class Rule:
         )
 
 
+def _dfs_no_cycle(
+    start: Key,
+    graph: Dict[Key, Tuple[Key, ...]],
+    known: Dict[Key, Rule],
+) -> None:
+    """Raise CycleError when ``start`` can reach itself through ``graph``.
+
+    Shared depth-first search backing both rule-set implementations.
+    Runs only on registration (cold path), never during resolution.
+    """
+    stack: List[Key] = []
+    on_stack: set[Key] = set()
+    visited: set[Key] = set()
+
+    def dfs(node: Key) -> None:
+        if node in on_stack:
+            raise DependencyCycleError([*stack, node])
+        if node in visited:
+            return
+        visited.add(node)
+        on_stack.add(node)
+        stack.append(node)
+        for dep in graph.get(node, ()):
+            if dep in known:
+                dfs(dep)
+        stack.pop()
+        on_stack.remove(node)
+
+    dfs(start)
+
+
 class RuleSet:
     """Immutable-by-convention rule storage and dependency graph.
 
@@ -777,25 +809,7 @@ class RuleSet:
 
     def _check_cycle(self, start: Key) -> None:
         """Check graph cycles from the given start node."""
-        stack: List[Key] = []
-        on_stack: set[Key] = set()
-        visited: set[Key] = set()
-
-        def dfs(node: Key) -> None:
-            if node in on_stack:
-                raise DependencyCycleError([*stack, node])
-            if node in visited:
-                return
-            visited.add(node)
-            on_stack.add(node)
-            stack.append(node)
-            for dep in self.graph.get(node, ()):
-                if dep in self.map:
-                    dfs(dep)
-            stack.pop()
-            on_stack.remove(node)
-
-        dfs(start)
+        _dfs_no_cycle(start, self.graph, self.map)
 
 
 class RuleSetProtocol(Protocol):
@@ -943,25 +957,7 @@ class CompositeRuleSet:
 
     def _check_cycle(self, start: Key) -> None:
         """Check graph cycles from the given start node."""
-        stack: List[Key] = []
-        on_stack: set[Key] = set()
-        visited: set[Key] = set()
-
-        def dfs(node: Key) -> None:
-            if node in on_stack:
-                raise DependencyCycleError([*stack, node])
-            if node in visited:
-                return
-            visited.add(node)
-            on_stack.add(node)
-            stack.append(node)
-            for dep in self.graph.get(node, ()):
-                if dep in self.map:
-                    dfs(dep)
-            stack.pop()
-            on_stack.remove(node)
-
-        dfs(start)
+        _dfs_no_cycle(start, self.graph, self.map)
 
 
 def _rule_signature(rule: Rule) -> Tuple[Any, ...]:
@@ -1240,7 +1236,7 @@ class Scope:
         self,
         key: Key,
         value: Any,
-        scope: Optional[Union[str, "Scope"]] = None,
+        scope: Optional[str | "Scope"] = None,
     ) -> None:
         """Store a context value available to ``from_context`` providers.
 
@@ -1268,7 +1264,7 @@ class Scope:
     def get_context(
         self,
         key: Key,
-        scope: Optional[Union[str, "Scope"]] = None,
+        scope: Optional[str | "Scope"] = None,
     ) -> Any:
         """Read a context value stored via :meth:`set_context`.
 
@@ -2017,15 +2013,15 @@ class Container:
             resolved = await asyncio.gather(
                 *(
                     self.aget(
-                        dep,
+                        level_dep,
                         _stacks=stacks,
                         _scope_name=_scope_name,
                         _path=path,
                     )
-                    for dep in level
+                    for level_dep in level
                 )
             )
-            args_by_key.update(dict(zip(level, resolved)))
+            args_by_key.update(dict(zip(level, resolved, strict=True)))
         return [args_by_key[dep] for dep in rule.deps]
 
     async def _await_factory_result(
@@ -2157,11 +2153,11 @@ class Container:
                     _scope_name,
                     path,
                 )
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as cancelled:
                 finalization = await self._finalize_on_cancel(lookup, stacks)
                 if finalization is not None:
                     raise finalization from None
-                raise ResolutionCancelledError(lookup) from None
+                raise ResolutionCancelledError(lookup, cancelled) from cancelled
         finally:
             path.pop()
 
@@ -2196,8 +2192,8 @@ class Container:
 
         results: Dict[Key, Any] = {}
         for level in levels:
-            resolved = await asyncio.gather(*(self.aget(key) for key in level))
-            results.update(dict(zip(level, resolved)))
+            resolved = await asyncio.gather(*(self.aget(level_key) for level_key in level))
+            results.update(dict(zip(level, resolved, strict=True)))
         return [results[key] for key in keys]
 
     def _independent_levels(self, keys: List[Key]) -> List[List[Key]]:
@@ -2263,7 +2259,7 @@ class Container:
 
     def scan(
         self,
-        *packages: Union[ModuleType, str],
+        *packages: ModuleType | str,
         recursive: bool = True,
     ) -> None:
         """Register all injectable classes found in the given packages.
@@ -2462,7 +2458,7 @@ class Container:
 
     def override(
         self,
-        key: Union[Key, Dict[Key, Any]],
+        key: Key | Dict[Key, Any],
         value: Any = None,
         **overrides: Any,
     ) -> OverrideContext:
@@ -2672,7 +2668,7 @@ class Container:
         for key, rule in self.config.ruleset.map.items():
             rules[repr(key)] = {
                 "lifetime": rule.lifetime,
-                "deps": [repr(dep) for dep in rule.deps],
+                "deps": [repr(dependency) for dependency in rule.deps],
                 "scope": rule.scope,
                 "yield": rule.yield_provider or rule.async_yield_provider,
                 "nested": rule.nested,

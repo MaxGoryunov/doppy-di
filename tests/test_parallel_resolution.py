@@ -72,8 +72,9 @@ def test_parallel_cancels_on_failure() -> None:
     async def main() -> None:
         await container.get_many(["bad", "other"], parallel=True)
 
-    with pytest.raises(RuntimeError):
-        run(main())
+    coro = main()
+    with pytest.raises(RuntimeError):  # NOSONAR(S5778)
+        run(coro)
 
 
 def test_aget_resolves_async_factory() -> None:
@@ -227,8 +228,9 @@ def test_aget_missing_key_raises() -> None:
     builder = ContainerBuilder()
     container = builder.build()
 
-    with pytest.raises(KeyError):
-        run(container.aget("missing"))
+    coro = container.aget("missing")
+    with pytest.raises(KeyError):  # NOSONAR(S5778)
+        run(coro)  # NOSONAR(S5778)
 
 
 def test_aget_async_yield_provider_resolves() -> None:

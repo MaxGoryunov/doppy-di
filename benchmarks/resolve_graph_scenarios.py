@@ -323,13 +323,13 @@ def scenario_first_touch() -> ScenarioResult:
         plan = _ft_setup_doppy()
         first = [plan.get(h) for h in FT_HANDLERS]
         second = [plan.get(h) for h in FT_HANDLERS]
-        assert all(a is not b for a, b in zip(first, second))
+        assert all(a is not b for a, b in zip(first, second, strict=True))
         assert first[0].a.client is second[0].a.client
         assert first[0].a.client.settings is ft_settings
         injex_container = _ft_setup_injex()
         inj_first = [injex_container.resolve(h) for h in FT_HANDLERS]
         inj_second = [injex_container.resolve(h) for h in FT_HANDLERS]
-        assert all(a is not b for a, b in zip(inj_first, inj_second))
+        assert all(a is not b for a, b in zip(inj_first, inj_second, strict=True))
         assert inj_first[0].a.client is inj_second[0].a.client
         check = "PASS"
     except Exception as exc:
@@ -769,7 +769,7 @@ def scenario_round_robin() -> ScenarioResult:
     try:
         seen = [plan.get(root) for root in RR_ROOTS]
         again = [plan.get(root) for root in RR_ROOTS]
-        assert all(a is not b for a, b in zip(seen, again))
+        assert all(a is not b for a, b in zip(seen, again, strict=True))
         assert seen[0].a.client is again[0].a.client
         check = "PASS"
     except Exception as exc:

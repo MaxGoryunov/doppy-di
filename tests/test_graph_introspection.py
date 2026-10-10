@@ -104,7 +104,7 @@ def test_graph_dependencies_of_missing_raises() -> None:
     builder.value("b", 1)
     container = builder.build()
 
-    with pytest.raises(ServiceNotFoundError):
+    with pytest.raises(ServiceNotFoundError):  # NOSONAR(S5778)
         container.graph().dependencies_of("missing")
 
 
@@ -113,7 +113,7 @@ def test_graph_dependents_of_missing_raises() -> None:
     builder.value("b", 1)
     container = builder.build()
 
-    with pytest.raises(ServiceNotFoundError):
+    with pytest.raises(ServiceNotFoundError):  # NOSONAR(S5778)
         container.graph().dependents_of("missing")
 
 
@@ -340,12 +340,12 @@ def test_get_container_builder() -> None:
 
 def test_get_container_duplicate_error() -> None:
     err = DuplicateRegistrationError("x")
-    with pytest.raises(DuplicateRegistrationError):
+    with pytest.raises(DuplicateRegistrationError):  # NOSONAR(S5778)
         _get_container(err)
 
 
 def test_get_container_invalid() -> None:
-    with pytest.raises(click.ClickException):
+    with pytest.raises(click.ClickException):  # NOSONAR(S5778)
         _get_container(object())
 
 

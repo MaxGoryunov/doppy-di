@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import inspect
 from functools import wraps
-from typing import Any, Callable, Optional, Protocol, Type, Union, cast, get_args, get_origin
+from typing import Any, Callable, Optional, Protocol, Type, cast, get_args, get_origin
 
 from .auto_wiring import MissingAnnotationError, UnresolvableDependencyError
 from .container import (
@@ -49,13 +49,13 @@ class _DependsMarker:
 
     def __init__(
         self,
-        dependency: Optional[Union[Type[Any], Callable[..., Any]]],
+        dependency: Optional[Type[Any] | Callable[..., Any]],
     ) -> None:
         self.dependency = dependency
 
 
 def Depends(  # noqa: N802  # NOSONAR python:S1542 public marker mirrors FastAPI Depends API
-    dependency: Optional[Union[Type[Any], Callable[..., Any]]] = None,
+    dependency: Optional[Type[Any] | Callable[..., Any]] = None,
 ) -> Any:
     """Declare a dependency for injection.
 
@@ -499,10 +499,13 @@ def inject(
     def decorate(func: Callable[..., Any]) -> Callable[..., Any]:
         plan: Optional[_Plan] = None
 
-        def _get_plan() -> _Plan:
+        def _get_plan(
+            _builder: Callable[[Callable[..., Any]], _Plan] = _build_plan,
+            _target: Callable[..., Any] = func,
+        ) -> _Plan:
             nonlocal plan
             if plan is None:
-                plan = _build_plan(func)
+                plan = _builder(_target)
             return plan
 
         if inspect.iscoroutinefunction(func):

@@ -29,7 +29,7 @@ class OrderPolicy(Protocol):
         _key: Key,
         _ruleset: RuleSetProtocol,
         _ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 protocol hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) protocol hook, signature fixed
         """Run before object resolution."""
 
     def after_resolve(
@@ -38,7 +38,7 @@ class OrderPolicy(Protocol):
         _obj: Any,
         _ruleset: RuleSetProtocol,
         _ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 protocol hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) protocol hook, signature fixed
         """Run after object resolution."""
 
 
@@ -58,7 +58,7 @@ class UnorderedPolicy:
         _key: Key,
         _ruleset: RuleSetProtocol,
         _ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 policy hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) policy hook, signature fixed
         _ = _key, _ruleset, _ctx
         return None
 
@@ -68,7 +68,7 @@ class UnorderedPolicy:
         _obj: Any,
         _ruleset: RuleSetProtocol,
         _ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 policy hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) policy hook, signature fixed
         _ = _key, _obj, _ruleset, _ctx
         return None
 
@@ -95,7 +95,7 @@ class ChildrenFirstPolicy:
         key: Key,
         _ruleset: RuleSetProtocol,
         ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 policy hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) policy hook, signature fixed
         _ = _ruleset
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)
@@ -107,7 +107,7 @@ class ChildrenFirstPolicy:
         _obj: Any,
         _ruleset: RuleSetProtocol,
         _ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 policy hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) policy hook, signature fixed
         _ = _key, _obj, _ruleset, _ctx
         return None
 
@@ -132,7 +132,7 @@ class ParentFirstPolicy:
         _key: Key,
         _ruleset: RuleSetProtocol,
         _ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 policy hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) policy hook, signature fixed
         _ = _key, _ruleset, _ctx
         return None
 
@@ -142,7 +142,7 @@ class ParentFirstPolicy:
         _obj: Any,
         _ruleset: RuleSetProtocol,
         ctx: ResolveContext,
-    ) -> None:  # NOSONAR python:S1172 policy hook, signature fixed
+    ) -> None:  # NOSONAR(S1172) policy hook, signature fixed
         _ = _obj, _ruleset
         for child_name in self.nested.get(key, []):
             child_key = (key, child_name)

@@ -140,7 +140,7 @@ def test_eager_policy_raises_on_async_rule() -> None:
     builder.service("a", make_async)
     builder.service("b", lambda: 2)
 
-    with pytest.raises(AsyncDependencyInSyncContextError):
+    with pytest.raises(AsyncDependencyInSyncContextError):  # NOSONAR(S5778)
         builder.build(policy=EagerPolicy())
 
 
@@ -303,7 +303,7 @@ def test_policy_with_missing_dependency_keeps_error() -> None:
     builder.service("a", lambda b: b, deps=["b"])
     container = builder.build(policy=ResolutionParentFirstPolicy())
 
-    with pytest.raises(KeyError):
+    with pytest.raises(KeyError):  # NOSONAR(S5778)
         container.get("a")
 
 
