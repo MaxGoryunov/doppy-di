@@ -20,7 +20,7 @@ import importlib
 import inspect
 import pkgutil
 from types import ModuleType
-from typing import Any, Optional, Tuple, Type, TypeGuard, Union, get_args, get_origin
+from typing import Any, Optional, Tuple, Type, TypeGuard, get_args, get_origin
 
 from .container import Key, Qualifier, Rule
 
@@ -167,7 +167,7 @@ def _iter_modules(pkg: ModuleType, recursive: bool) -> Any:
 
 def scan_package(
     container: Any,
-    pkg: Union[ModuleType, str],
+    pkg: ModuleType | str,
     recursive: bool = True,
 ) -> None:
     """Register all injectable classes found in a package.

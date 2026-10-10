@@ -29,7 +29,6 @@ from typing import (
     List,
     Optional,
     Tuple,
-    Union,
     get_args,
     get_origin,
 )
@@ -67,7 +66,7 @@ def _identity(value: Any) -> Any:
     return value
 
 
-def _scope_value(scope: Union[str, Scope]) -> str:
+def _scope_value(scope: str | Scope) -> str:
     """Coerce a scope argument to its string name."""
     if isinstance(scope, str):
         return scope
@@ -77,7 +76,7 @@ def _scope_value(scope: Union[str, Scope]) -> str:
     return getattr(scope, "name", str(scope))
 
 
-def _dep_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
+def _dep_key(dep: Key | "Provider") -> Optional[Key]:
     """Resolve a dependency to a registration key.
 
     Returns ``None`` for an unbound placeholder so the dependency is dropped.
@@ -94,7 +93,7 @@ def _dep_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
     return dep
 
 
-def _member_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
+def _member_key(dep: Key | "Provider") -> Optional[Key]:
     """Resolve an aggregate member to a registration key.
 
     Unlike :func:`_dep_key`, an ``UnboundProvider`` member is an error:
@@ -108,7 +107,7 @@ def _member_key(dep: Union[Key, "Provider"]) -> Optional[Key]:
     return _dep_key(dep)
 
 
-def _aggregate_deps(providers: Tuple[Union[Key, "Provider"], ...]) -> Tuple[Key, ...]:
+def _aggregate_deps(providers: Tuple[Key | "Provider", ...]) -> Tuple[Key, ...]:
     """Collect registration keys for aggregate members.
 
     Shared by ``ListOf``/``SetOf``/``DictOf``. Runs only on assignment
@@ -121,7 +120,7 @@ def _aggregate_deps(providers: Tuple[Union[Key, "Provider"], ...]) -> Tuple[Key,
 def _aggregate_rule(
     provider: "Provider",
     name: str,
-    providers: Tuple[Union[Key, "Provider"], ...],
+    providers: Tuple[Key | "Provider", ...],
     aggregate: Callable[..., Any],
 ) -> List["Rule"]:
     """Build a transient aggregate rule for ``name``.
@@ -209,8 +208,8 @@ class Factory(Provider):
     def __init__(
         self,
         factory: Callable[..., Any],
-        *dependencies: Union[Key, Provider],
-        **named_dependencies: Union[Key, Provider],
+        *dependencies: Key | Provider,
+        **named_dependencies: Key | Provider,
     ) -> None:
         self.factory = factory
         self.dependencies = (*dependencies, *named_dependencies.values())
@@ -241,8 +240,8 @@ class Singleton(Provider):
     def __init__(
         self,
         factory: Callable[..., Any],
-        *dependencies: Union[Key, Provider],
-        **named_dependencies: Union[Key, Provider],
+        *dependencies: Key | Provider,
+        **named_dependencies: Key | Provider,
     ) -> None:
         self.factory = factory
         self.dependencies = (*dependencies, *named_dependencies.values())
@@ -275,8 +274,8 @@ class Scoped(Provider):
     def __init__(
         self,
         factory: Callable[..., Any],
-        scope: Union[str, Scope],
-        *dependencies: Union[Key, Provider],
+        scope: str | Scope,
+        *dependencies: Key | Provider,
     ) -> None:
         self.factory = factory
         self.scope = _scope_value(scope)
@@ -317,7 +316,7 @@ class FromContext(Provider):
     def __init__(
         self,
         key: Key,
-        scope: Union[str, Scope] = Scope.REQUEST,
+        scope: str | Scope = Scope.REQUEST,
     ) -> None:
         self.context_key = key
         self.scope = _scope_value(scope)
@@ -340,7 +339,7 @@ class FromContext(Provider):
 
 def from_context(
     key: Key,
-    scope: Union[str, Scope] = Scope.REQUEST,
+    scope: str | Scope = Scope.REQUEST,
 ) -> FromContext:
     """Declare a provider resolving a value from the active scope context.
 
@@ -386,7 +385,7 @@ class Assisted(Provider):
     def __init__(
         self,
         factory: Callable[..., Any],
-        *dependencies: Union[Key, Provider],
+        *dependencies: Key | Provider,
         lifetime: str = "transient",
     ) -> None:
         if lifetime != "transient":
@@ -460,7 +459,7 @@ class Resource(Provider):
         'db'
     """
 
-    def __init__(self, factory: Callable[..., Any], scope: Union[str, Scope]) -> None:
+    def __init__(self, factory: Callable[..., Any], scope: str | Scope) -> None:
         self.factory = factory
         self.scope = _scope_value(scope)
 
@@ -505,7 +504,7 @@ class Alias(Provider):
         1
     """
 
-    def __init__(self, target: Union[Key, Provider]) -> None:
+    def __init__(self, target: Key | Provider) -> None:
         self.target = target
 
     def to_rules(self, name: str) -> List[Rule]:
@@ -537,9 +536,9 @@ class Selector(Provider):
 
     def __init__(
         self,
-        providers: Dict[str, Union[Key, Provider]],
+        providers: Dict[str, Key | Provider],
         selector_fn: Callable[[SelectorContext], str],
-        context: Optional[Union[Key, Provider]] = None,
+        context: Optional[Key | Provider] = None,
     ) -> None:
         self.providers = providers
         self.selector_fn = selector_fn
@@ -556,7 +555,7 @@ class Selector(Provider):
             deps.append(dep)
             labels.append(label)
 
-        providers_map = dict(zip(labels, deps))
+        providers_map = dict(zip(labels, deps, strict=True))
         has_context = self.context is not None
         if has_context:
             context = self.context
@@ -610,7 +609,7 @@ class Dependency(Provider):
         ServiceNotFoundError
     """
 
-    def __init__(self, target: Union[Key, Provider]) -> None:
+    def __init__(self, target: Key | Provider) -> None:
         self.target = target
 
     def to_rules(self, name: str) -> List[Rule]:
@@ -638,7 +637,7 @@ class ListOf(Provider):
         [1, 2]
     """
 
-    def __init__(self, *providers: Union[Key, Provider]) -> None:
+    def __init__(self, *providers: Key | Provider) -> None:
         self.providers = providers
 
     def to_rules(self, name: str) -> List[Rule]:
@@ -659,7 +658,7 @@ class SetOf(Provider):
         {1, 2}
     """
 
-    def __init__(self, *providers: Union[Key, Provider]) -> None:
+    def __init__(self, *providers: Key | Provider) -> None:
         self.providers = providers
 
     def to_rules(self, name: str) -> List[Rule]:
@@ -680,14 +679,14 @@ class DictOf(Provider):
         {'a': 1, 'b': 2}
     """
 
-    def __init__(self, **providers: Union[Key, Provider]) -> None:
+    def __init__(self, **providers: Key | Provider) -> None:
         self.providers = providers
 
     def to_rules(self, name: str) -> List[Rule]:
         self.key = name
         deps = _aggregate_deps(tuple(self.providers.values()))
         keys = list(self.providers.keys())
-        return [Rule(name, lambda *args: dict(zip(keys, args)), "transient", deps)]
+        return [Rule(name, lambda *args: dict(zip(keys, args, strict=True)), "transient", deps)]
 
 
 def _collect_dict_members(item: Any, ruleset: Any) -> List[Tuple[str, Key]]:
@@ -732,7 +731,7 @@ def implicit_collection_rule(key: Any, ruleset: Any) -> Optional[Rule]:
             return None
         names = [label for label, _ in members]
         deps = tuple(dep for _, dep in members)
-        return Rule(key, lambda *vals: dict(zip(names, vals)), "transient", deps)
+        return Rule(key, lambda *vals: dict(zip(names, vals, strict=True)), "transient", deps)
     item = args[0] if args else None
     if item is None:
         return None

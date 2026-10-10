@@ -84,7 +84,7 @@ class KeyProtocol(Protocol):
     def __eq__(self, other: object) -> bool: ...
 
 
-Key = Union[str, type, KeyProtocol, Tuple[Any, str]]
+Key = Union[str, type, KeyProtocol, Tuple[Any, str]]  # noqa: UP007 — runtime alias, py39-style Union required
 Lifetime = str
 
 TracerFn = Callable[[Key, float, bool, Optional[str]], None]
@@ -215,8 +215,9 @@ class SyncFactoryReturningAwaitableError(Exception):
 class ResolutionCancelledError(asyncio.CancelledError):
     """Raised when ``aget()`` is cancelled after partially creating resources."""
 
-    def __init__(self, key: Key) -> None:
+    def __init__(self, key: Key, cancelled: asyncio.CancelledError | None = None) -> None:
         self.key = key
+        self.cancelled = cancelled
         super().__init__(f"Resolution of {key!r} was cancelled")
 
 
@@ -1235,7 +1236,7 @@ class Scope:
         self,
         key: Key,
         value: Any,
-        scope: Optional[Union[str, "Scope"]] = None,
+        scope: Optional[str | "Scope"] = None,
     ) -> None:
         """Store a context value available to ``from_context`` providers.
 
@@ -1263,7 +1264,7 @@ class Scope:
     def get_context(
         self,
         key: Key,
-        scope: Optional[Union[str, "Scope"]] = None,
+        scope: Optional[str | "Scope"] = None,
     ) -> Any:
         """Read a context value stored via :meth:`set_context`.
 
@@ -2020,7 +2021,7 @@ class Container:
                     for level_dep in level
                 )
             )
-            args_by_key.update(dict(zip(level, resolved)))
+            args_by_key.update(dict(zip(level, resolved, strict=True)))
         return [args_by_key[dep] for dep in rule.deps]
 
     async def _await_factory_result(
@@ -2152,11 +2153,11 @@ class Container:
                     _scope_name,
                     path,
                 )
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as cancelled:
                 finalization = await self._finalize_on_cancel(lookup, stacks)
                 if finalization is not None:
                     raise finalization from None
-                raise ResolutionCancelledError(lookup) from None
+                raise ResolutionCancelledError(lookup, cancelled) from cancelled
         finally:
             path.pop()
 
@@ -2192,7 +2193,7 @@ class Container:
         results: Dict[Key, Any] = {}
         for level in levels:
             resolved = await asyncio.gather(*(self.aget(level_key) for level_key in level))
-            results.update(dict(zip(level, resolved)))
+            results.update(dict(zip(level, resolved, strict=True)))
         return [results[key] for key in keys]
 
     def _independent_levels(self, keys: List[Key]) -> List[List[Key]]:
@@ -2258,7 +2259,7 @@ class Container:
 
     def scan(
         self,
-        *packages: Union[ModuleType, str],
+        *packages: ModuleType | str,
         recursive: bool = True,
     ) -> None:
         """Register all injectable classes found in the given packages.
@@ -2457,7 +2458,7 @@ class Container:
 
     def override(
         self,
-        key: Union[Key, Dict[Key, Any]],
+        key: Key | Dict[Key, Any],
         value: Any = None,
         **overrides: Any,
     ) -> OverrideContext:

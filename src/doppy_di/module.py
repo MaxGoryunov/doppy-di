@@ -40,7 +40,7 @@ class Module(Protocol):
     def configure(self, binder: "ModuleBinder") -> None: ...
 
 
-ModuleLike = Union[Module, Callable[["ModuleBinder"], None]]
+ModuleLike = Union[Module, Callable[["ModuleBinder"], None]]  # noqa: UP007 — runtime alias, py39-style Union required
 
 
 class ModuleBinder:

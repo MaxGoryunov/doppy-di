@@ -106,12 +106,12 @@ source = "vcs"
 version_scheme = "no-guess-dev"
 
 [tool.ruff]
-target-version = "py39"
+target-version = "py310"
 line-length = 100
 
 [tool.ruff.lint]
 select = ["A", "B", "C4", "E", "F", "I", "N", "PT", "RUF", "SIM", "UP", "W"]
-ignore = ["UP006", "UP007", "UP035", "UP037", "UP045"]
+ignore = ["UP006", "UP035", "UP037", "UP045"]
 
 [tool.ruff.lint.per-file-ignores]
 # scripts/ — служебные сборщики отчётов, документация и вывод здесь на русском
