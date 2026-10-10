@@ -248,7 +248,7 @@ def pairwise_report(
     lo, hi = bootstrap_median_diff_ci(xs, ys)
     p = mann_whitney_p(xs, ys)
     cle = common_language_effect(xs, ys)
-    ratios = sorted(x / y for x, y in zip(xs, ys))
+    ratios = sorted(x / y for x, y in zip(xs, ys, strict=True))
     med_ratio = statistics.median(ratios)
 
     significant = p < 0.05 and (lo > 0 or hi < 0)
