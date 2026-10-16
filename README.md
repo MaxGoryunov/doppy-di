@@ -188,6 +188,19 @@ warning.service("x", lambda: 1)
 warning.service("x", lambda: 2)  # logs warning, overwrites
 ```
 
+### Type-based fallback (opt-in autowiring)
+
+Resolve unregistered concrete types from constructor annotations. Off by default; explicit rules always win.
+
+```python
+from doppy_di.auto_wiring import TypeFallbackStrategy
+
+builder = ContainerBuilder(autowiring_strategy=TypeFallbackStrategy())
+builder.set_autowiring_strategy(TypeFallbackStrategy(max_depth=8))
+```
+
+Builtins, `Any`, unions without rules, and ambiguous protocols stay rejected. Qualifier conflicts raise instead of picking arbitrarily. Cycles report the full type chain.
+
 ### Optional runtime layers
 The `devkit` package provides optional extensions:
 
