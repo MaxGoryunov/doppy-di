@@ -189,7 +189,6 @@ warning.service("x", lambda: 2)  # logs warning, overwrites
 ```
 
 ### Optional runtime layers
-
 The `devkit` package provides optional extensions:
 
 ```python
@@ -212,6 +211,19 @@ from doppy_di.devkit.policy import OrderPolicy
 
 # control the order of nested field resolution
 policy = ChildrenFirstPolicy()
+```
+
+### Detecting service-locator abuse
+Use `RateLimitedContainer` in dev to catch hot-loop `get()` calls. Use `unwrap` / `ensure_unwrapped` before production so expensive devkit layers never ship.
+
+```python
+from doppy_di.devkit import RateLimitedContainer, ensure_unwrapped, unwrap
+
+dev = RateLimitedContainer(container, max_resolutions_per_second=100, on_limit="warn")
+dev.get("svc")
+print(dev.usage_report(top_n=5))
+ensure_unwrapped(dev, mode="raise")  # fails fast if wrapper leaks to prod
+prod = unwrap(dev)
 ```
 
 ### Auto-wiring

@@ -9,6 +9,12 @@ from .policy import (
     ParentFirstPolicy,
     UnorderedPolicy,
 )
+from .rate_limit import (
+    RateLimitedContainer,
+    ResolutionRateLimitExceededError,
+    ensure_unwrapped,
+    unwrap,
+)
 from .validation import ValidatingContainer, ValidationRule, ValidationRunner
 
 __all__ = [
@@ -18,6 +24,8 @@ __all__ = [
     "NestedRules",
     "OrderPolicy",
     "ParentFirstPolicy",
+    "RateLimitedContainer",
+    "ResolutionRateLimitExceededError",
     "ResolveContext",
     "SameObjectPolicy",
     "SameValuePolicy",
@@ -25,4 +33,6 @@ __all__ = [
     "ValidatingContainer",
     "ValidationRule",
     "ValidationRunner",
+    "ensure_unwrapped",
+    "unwrap",
 ]
