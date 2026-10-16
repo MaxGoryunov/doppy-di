@@ -1854,6 +1854,10 @@ class Container:
 
                 self.config.ruleset.add(lookup, _rule_for(lookup))
                 return self.config.ruleset.find(lookup)
+            fallback = self._implicit_fallback_rule(lookup, path)
+            if fallback is not None:
+                self.config.ruleset.add(fallback.key, fallback)
+                return self.config.ruleset.find(fallback.key)
             if qualifier is not None:
                 raise UnregisteredDependencyError(key, qualifier) from None
             if len(path) > 1:
@@ -1864,6 +1868,28 @@ class Container:
                     registration_source=self._registration_source(lookup),
                 ) from None
             raise
+
+    def _implicit_fallback_rule(self, lookup: Key, path: List[Key]) -> Optional[Rule]:
+        """Return implicit type-based rule when strategy allows, else ``None``."""
+        from .auto_wiring import (
+            UnresolvableDependencyError,
+            _fallback_rule_for,
+            _target_of_lookup,
+        )
+
+        strategy = self._autowiring_strategy
+        if strategy is None:
+            return None
+        target = _target_of_lookup(lookup)
+        if target is None or strategy.should_attempt(target) is not None:
+            return None
+        if strategy.check_depth(len(path)) is not None:
+            return None
+        if isinstance(lookup, type) and any(
+            isinstance(k, tuple) and len(k) == 2 and k[0] is lookup for k in self.config.ruleset.map
+        ):
+            raise UnresolvableDependencyError(path[-1] if path else lookup, lookup)
+        return _fallback_rule_for(lookup, strategy, list(path))
 
     def _registration_source(self, lookup: Key) -> Any:
         """Return the registration source recorded for ``lookup``, if any."""

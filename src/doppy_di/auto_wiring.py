@@ -20,7 +20,7 @@ import importlib
 import inspect
 import pkgutil
 from types import ModuleType
-from typing import Any, Dict, List, Optional, Tuple, Type, TypeGuard, get_args, get_origin
+from typing import Any, List, Optional, Tuple, Type, TypeGuard, get_args, get_origin
 
 from .container import Key, Qualifier, Rule
 
@@ -245,7 +245,7 @@ class TypeFallbackStrategy:
                 inner = args[0] if args else None
                 if inner is not None:
                     return self.should_attempt(inner)
-                return None
+                return f"empty annotation {target!r} needs an explicit rule"
             if isinstance(origin, type):
                 return self.should_attempt(origin)
             return f"generic {target!r} needs an explicit rule"
@@ -275,10 +275,7 @@ def _fallback_deps(target: type) -> Tuple[Key, ...]:
     import typing
 
     fn = getattr(target, "__init__", None)
-    try:
-        hints = typing.get_type_hints(fn, include_extras=True) if fn is not None else {}
-    except Exception:
-        hints = {}
+    hints = typing.get_type_hints(fn, include_extras=True) if fn is not None else {}
     if not hints:
         try:
             hints = typing.get_type_hints(target, include_extras=True)
@@ -341,53 +338,7 @@ def _fallback_rule_for(lookup: Key, strategy: TypeFallbackStrategy, path: List[K
 
 
 def _patch_builder_for_fallback() -> None:
-    """Attach fallback lookup to ``Container._find_rule`` (idempotent)."""
-    from . import container as _c
-
-    container_cls = getattr(_c, "Container", None)
-    if container_cls is None or getattr(container_cls, "__doppy_fallback_patched__", False):
-        return
-    orig_find_rule = container_cls._find_rule
-
-    def _find_rule_with_fallback(
-        self: Any, lookup: Any, key: Any, qualifier: Any, path: Any, scope: Any
-    ) -> Any:
-        from .container import DependencyCycleError
-
-        try:
-            return orig_find_rule(self, lookup, key, qualifier, path, scope)
-        except DependencyCycleError:
-            raise
-        except Exception:
-            strategy = getattr(self, "_autowiring_strategy", None)
-            if strategy is None:
-                raise
-            target = _target_of_lookup(lookup)
-            if target is None or strategy.should_attempt(target) is not None:
-                raise
-            if strategy.check_depth(len(path)) is not None:
-                raise
-            if isinstance(lookup, type):
-                try:
-                    rules = getattr(getattr(self, "config", None), "ruleset", None)
-                    amap: Dict[Any, Any] = getattr(rules, "map", {}) if rules else {}
-                    if any(isinstance(k, tuple) and len(k) == 2 and k[0] is lookup for k in amap):
-                        raise UnresolvableDependencyError(path[-1] if path else lookup, lookup)
-                except UnresolvableDependencyError:
-                    raise
-                except Exception:
-                    pass
-            rule = _fallback_rule_for(lookup, strategy, list(path))
-            try:
-                self.config.ruleset.add(rule.key, rule)
-            except DependencyCycleError:
-                raise
-            except Exception:
-                pass
-            return self.config.ruleset.find(rule.key)
-
-    container_cls._find_rule = _find_rule_with_fallback  # type: ignore[method-assign]
-    container_cls.__doppy_fallback_patched__ = True  # type: ignore[attr-defined]
+    """No-op hook kept for backward compatibility (fallback is native now)."""
 
 
 _patch_builder_for_fallback()
