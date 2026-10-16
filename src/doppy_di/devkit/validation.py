@@ -99,6 +99,8 @@ class ValidatingContainer:
 
     __slots__ = ("_resolving", "nested", "policy", "validator", "wrapped")
 
+    _devkit = True
+
     def __init__(
         self,
         wrapped: Container,
@@ -137,6 +139,22 @@ class ValidatingContainer:
             if self.nested is not None and key in self.nested.map:
                 self.nested.validate_nested(key, self.wrapped, obj)
 
+            return obj
+        finally:
+            self._resolving.remove(key)
+
+    async def aget(self, key: Key) -> Any:
+        """Resolve key asynchronously with ordering and validation."""
+        import asyncio
+
+        if key in self._resolving:
+            raise CycleError([key])
+        self._resolving.add(key)
+        try:
+            fn = getattr(self.wrapped, "aget", None)
+            res = fn(key) if fn is not None else self.wrapped.get(key)
+            obj = await res if asyncio.iscoroutine(res) else res
+            self.validator.run(self.wrapped, key, obj)
             return obj
         finally:
             self._resolving.remove(key)

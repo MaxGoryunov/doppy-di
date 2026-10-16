@@ -42,6 +42,8 @@ class LoggingContainer:
     wrapped: Container
     log: Callable[[str], None]
 
+    _devkit = True
+
     def get(self, key: Key) -> Any:
         """Resolve key and log the operation.
 
@@ -56,6 +58,21 @@ class LoggingContainer:
             return obj
         except BaseException as exc:
             self.log(f"get({key!r}) -> error: {exc.__class__.__name__}")
+            raise
+
+    async def aget(self, key: Key) -> Any:
+        """Resolve key asynchronously and log the operation."""
+        import asyncio
+
+        self.log(f"aget({key!r})")
+        try:
+            fn = getattr(self.wrapped, "aget", None)
+            res = fn(key) if fn is not None else self.wrapped.get(key)
+            obj = await res if asyncio.iscoroutine(res) else res
+            self.log(f"aget({key!r}) -> ok")
+            return obj
+        except BaseException as exc:
+            self.log(f"aget({key!r}) -> error: {exc.__class__.__name__}")
             raise
 
     def has(self, key: Key) -> bool:
