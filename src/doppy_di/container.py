@@ -2036,7 +2036,7 @@ class Container:
         levels = self._independent_levels(list(rule.deps))
         if rule.deps and not levels:
             raise DependencyCycleError([lookup, *rule.deps])
-        args_by_key: Dict[Key, Any] = {}
+        args: Dict[Key, Any] = {}
         for level in levels:
             resolved = await asyncio.gather(
                 *(
@@ -2049,8 +2049,8 @@ class Container:
                     for level_dep in level
                 )
             )
-            args_by_key.update(dict(zip(level, resolved, strict=True)))
-        return [args_by_key[dep] for dep in rule.deps]
+            args.update(dict(zip(level, resolved, strict=True)))
+        return [args[dep] for dep in rule.deps]
 
     async def _await_factory_result(
         self,
@@ -2277,13 +2277,13 @@ class Container:
         dependents: Dict[Key, List[Key]],
     ) -> List[Key]:
         """Release one dependency level and return the newly unblocked keys."""
-        next_ready: List[Key] = []
+        unblocked: List[Key] = []
         for key in ready:
             for dependent in dependents[key]:
                 indegree[dependent] -= 1
                 if indegree[dependent] == 0:
-                    next_ready.append(dependent)
-        return next_ready
+                    unblocked.append(dependent)
+        return unblocked
 
     def scan(
         self,
@@ -2658,17 +2658,17 @@ class Container:
             True
         """
         own = self.config.ruleset.map
-        other_map = other.config.ruleset.map
+        peer = other.config.ruleset.map
         added: List[Key] = []
         removed: List[Key] = []
         changed: List[Key] = []
-        for key in other_map:
+        for key in peer:
             if key not in own:
                 added.append(key)
-            elif _rule_signature(own[key]) != _rule_signature(other_map[key]):
+            elif _rule_signature(own[key]) != _rule_signature(peer[key]):
                 changed.append(key)
         for key in own:
-            if key not in other_map:
+            if key not in peer:
                 removed.append(key)
         return DiffReport(
             added=tuple(added),

@@ -126,8 +126,8 @@ class NestedRules:
             >>> rs.has(("db", "conn"))
             True
         """
-        nested_key = (parent, child)
-        ruleset.add(nested_key, replace(rule, nested=True))
+        nested = (parent, child)
+        ruleset.add(nested, replace(rule, nested=True))
         self.map.setdefault(parent, [])
         if child not in self.map[parent]:
             self.map[parent].append(child)
@@ -145,8 +145,8 @@ class NestedRules:
         if parent_obj is None:
             parent_obj = container.get(parent)
         for child in children:
-            nested_key = (parent, child)
-            nested_obj = container.get(nested_key)
+            nested = (parent, child)
+            nested_obj = container.get(nested)
 
             if not hasattr(parent_obj, child):
                 raise NestedRuleError(parent, child, f"field {child!r} not found")
