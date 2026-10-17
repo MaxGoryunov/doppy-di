@@ -20,7 +20,7 @@ import importlib
 import inspect
 import pkgutil
 from types import ModuleType
-from typing import Any, Optional, Tuple, Type, TypeGuard, get_args, get_origin
+from typing import Any, List, Optional, Tuple, Type, TypeGuard, get_args, get_origin
 
 from .container import Key, Qualifier, Rule
 
@@ -182,3 +182,171 @@ def scan_package(
             if container.config.ruleset.has(obj):
                 continue
             container.config.ruleset.add(obj, _rule_for(obj))
+
+
+_BUILTIN_TYPES: Tuple[type, ...] = (int, str, bool, float, bytes, dict, list, set, tuple)
+
+
+class TypeFallbackStrategy:
+    """Configurable type-based fallback for unregistered dependencies.
+
+    When no explicit registration exists, the container may attempt to
+    construct the dependency from its type annotation. Default behavior is
+    off: explicitly pass a strategy to enable implicit construction.
+
+    Args:
+        allow_concrete_classes: Resolve concrete classes (default True).
+        allow_protocols: Resolve Protocol types when unambiguous (default False).
+        allow_builtins: Resolve builtin types (default False, discouraged).
+        max_depth: Maximum implicit resolution chain depth.
+
+    Explicit rules always win over fallback. Builtins, ``Any``, unions
+    without rules, and ambiguous protocols stay rejected by default.
+    Cycles use existing detection and report the full type chain.
+
+    Examples:
+        >>> from doppy_di.container import ContainerBuilder
+        >>> from doppy_di.auto_wiring import TypeFallbackStrategy
+        >>> class Repo: pass
+        >>> from doppy_di import injectable
+        >>> @injectable
+        ... class Service:
+        ...     def __init__(self, repo: Repo) -> None:
+        ...         self.repo = repo
+        >>> c = ContainerBuilder(autowiring_strategy=TypeFallbackStrategy()).build()
+        >>> isinstance(c.get(Service).repo, Repo)
+        True
+    """
+
+    def __init__(
+        self,
+        allow_concrete_classes: bool = True,
+        allow_protocols: bool = False,
+        allow_builtins: bool = False,
+        max_depth: int = 16,
+    ) -> None:
+        self.allow_concrete_classes = allow_concrete_classes
+        self.allow_protocols = allow_protocols
+        self.allow_builtins = allow_builtins
+        self.max_depth = max_depth
+
+    def _reject_alias(self, target: Any, origin: Any) -> Optional[str]:
+        """Reject generic alias, unwrap Annotated, recurse origin."""
+        import typing
+
+        args = get_args(target)
+        if origin is typing.Union or "Union" in str(origin):
+            return f"union {target!r} needs an explicit rule"
+        if hasattr(target, "__metadata__"):
+            inner = args[0] if args else None
+            if inner is None:
+                return f"empty annotation {target!r} needs an explicit rule"
+            return self.should_attempt(inner)
+        if isinstance(origin, type):
+            return self.should_attempt(origin)
+        return f"generic {target!r} needs an explicit rule"
+
+    def _reject_type(self, target: type) -> Optional[str]:
+        """Reject builtin, protocol, abstract, non-injectable."""
+        if not self.allow_builtins and target in _BUILTIN_TYPES:
+            return f"builtin {target!r} is blocked by default"
+        if getattr(target, "_is_protocol", False):
+            if self.allow_protocols:
+                return None
+            return f"protocol {target!r} needs allow_protocols=True"
+        if inspect.isabstract(target) and not self.allow_protocols:
+            return f"abstract {target!r} is ambiguous without an explicit rule"
+        if not self.allow_concrete_classes and not is_injectable(target):
+            return f"{target!r} is not marked @injectable (STRICT mode)"
+        return None
+
+    def should_attempt(self, target: Any) -> Optional[str]:
+        """Return None when allowed, else human-readable rejection reason."""
+        if target is None or target is Any:
+            return "Any or missing annotation cannot be resolved implicitly"
+        origin = get_origin(target)
+        if origin is not None:
+            return self._reject_alias(target, origin)
+        if not isinstance(target, type):
+            return f"{target!r} is not a resolvable type"
+        return self._reject_type(target)
+
+    def check_depth(self, depth: int) -> Optional[str]:
+        """Return None when depth ok, else rejection reason."""
+        if depth > self.max_depth:
+            return f"max_depth {self.max_depth} exceeded"
+        return None
+
+
+def _fallback_deps(target: type) -> Tuple[Key, ...]:
+    """Resolve constructor deps handling string annotations."""
+    import typing
+
+    fn = getattr(target, "__init__", None)
+    hints = typing.get_type_hints(fn, include_extras=True) if fn is not None else {}
+    if not hints:
+        try:
+            hints = typing.get_type_hints(target, include_extras=True)
+        except Exception:
+            hints = {}
+    try:
+        sig = inspect.signature(target)
+    except (TypeError, ValueError):
+        return ()
+    deps: list[Key] = []
+    for name, param in sig.parameters.items():
+        if param.default is not inspect.Parameter.empty:
+            continue
+        if name in hints:
+            deps.append(_annotation_key(hints[name]))
+        elif param.annotation is not inspect.Parameter.empty:
+            deps.append(_annotation_key(param.annotation))
+        else:
+            raise MissingAnnotationError(target, name)
+    return tuple(deps)
+
+
+def _target_of_lookup(lookup: Key) -> Any:
+    """Return the type behind a lookup key, else None."""
+    if isinstance(lookup, type):
+        return lookup
+    if isinstance(lookup, tuple) and len(lookup) == 2 and isinstance(lookup[0], type):
+        return lookup[0]
+    return None
+
+
+def _fallback_rule_for(lookup: Key, strategy: TypeFallbackStrategy, path: List[Key]) -> Rule:
+    """Build implicit rule for ``lookup`` or raise descriptive error."""
+    target = _target_of_lookup(lookup)
+    owner: Key = path[-1] if path else lookup
+    reason = strategy.check_depth(len(path))
+    if reason is None:
+        reason = strategy.should_attempt(target) if target is not None else None
+    if reason is None and target is None:
+        reason = f"{lookup!r} is not a resolvable type"
+    if reason is not None:
+        raise UnresolvableDependencyError(owner, lookup)
+    assert target is not None
+    try:
+        deps = _fallback_deps(target)
+    except MissingAnnotationError as exc:
+        raise UnresolvableDependencyError(owner, lookup) from exc
+    meta = getattr(target, _INJECTABLE_META, {}) or {}
+    key: Key = target
+    if isinstance(lookup, tuple) and len(lookup) == 2:
+        key = (target, lookup[1])
+    elif meta.get("qualifier"):
+        key = (target, meta.get("qualifier"))
+    return Rule(
+        key=key,
+        make=target,
+        lifetime=meta.get("scope") or "singleton",
+        deps=deps,
+    )
+
+
+def _patch_builder_for_fallback() -> None:
+    """No-op hook kept for backward compatibility (fallback is native now)."""
+
+
+_patch_builder_for_fallback()

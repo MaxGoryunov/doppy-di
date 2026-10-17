@@ -1519,6 +1519,7 @@ class Container:
     """
 
     __slots__ = (
+        "_autowiring_strategy",
         "_compiled_plan",
         "_override_layers",
         "_policy",
@@ -1550,6 +1551,7 @@ class Container:
         self._tracer: Optional[TracerFn] = None
         self._policy: Optional["ResolutionPolicy"] = config.policy
         self._policy_depth = 0
+        self._autowiring_strategy: Any = None
 
     def _resolve_with_policy(
         self,
@@ -1852,6 +1854,10 @@ class Container:
 
                 self.config.ruleset.add(lookup, _rule_for(lookup))
                 return self.config.ruleset.find(lookup)
+            fallback = self._implicit_fallback_rule(lookup, path)
+            if fallback is not None:
+                self.config.ruleset.add(fallback.key, fallback)
+                return self.config.ruleset.find(fallback.key)
             if qualifier is not None:
                 raise UnregisteredDependencyError(key, qualifier) from None
             if len(path) > 1:
@@ -1862,6 +1868,28 @@ class Container:
                     registration_source=self._registration_source(lookup),
                 ) from None
             raise
+
+    def _implicit_fallback_rule(self, lookup: Key, path: List[Key]) -> Optional[Rule]:
+        """Return implicit type-based rule when strategy allows, else ``None``."""
+        from .auto_wiring import (
+            UnresolvableDependencyError,
+            _fallback_rule_for,
+            _target_of_lookup,
+        )
+
+        strategy = self._autowiring_strategy
+        if strategy is None:
+            return None
+        target = _target_of_lookup(lookup)
+        if target is None or strategy.should_attempt(target) is not None:
+            return None
+        if strategy.check_depth(len(path)) is not None:
+            return None
+        if isinstance(lookup, type) and any(
+            isinstance(k, tuple) and len(k) == 2 and k[0] is lookup for k in self.config.ruleset.map
+        ):
+            raise UnresolvableDependencyError(path[-1] if path else lookup, lookup)
+        return _fallback_rule_for(lookup, strategy, list(path))
 
     def _registration_source(self, lookup: Key) -> Any:
         """Return the registration source recorded for ``lookup``, if any."""
@@ -2894,6 +2922,7 @@ class ContainerBuilder:
     """
 
     __slots__ = (
+        "autowiring_strategy",
         "check_cycles_on_register",
         "compile_policy",
         "duplicate_policy",
@@ -2913,6 +2942,7 @@ class ContainerBuilder:
         wrap_factory_errors: bool = False,
         finalization_errors: bool = False,
         check_cycles_on_register: bool = True,
+        autowiring_strategy: Any = None,
     ) -> None:
         """Initialize builder with optional policies.
 
@@ -2931,6 +2961,17 @@ class ContainerBuilder:
         self.wrap_factory_errors = wrap_factory_errors
         self.finalization_errors = finalization_errors
         self.check_cycles_on_register = check_cycles_on_register
+        self.autowiring_strategy = autowiring_strategy
+
+    def set_autowiring_strategy(self, strategy: Any) -> ContainerBuilder:
+        """Set type-based fallback strategy (default off).
+
+        Examples:
+            >>> builder = ContainerBuilder()
+            >>> builder.set_autowiring_strategy(None)
+        """
+        self.autowiring_strategy = strategy
+        return self
 
     def _capture_source(self) -> Optional[RegistrationSource]:
         if not self.track_sources:
@@ -3130,6 +3171,9 @@ class ContainerBuilder:
                 policy=policy,
             )
         )
+        strategy = getattr(self, "autowiring_strategy", None)
+        if strategy is not None:
+            container._autowiring_strategy = strategy
         if policy is not None:
             self._warm_up_policy(container, policy)
         return container

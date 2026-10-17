@@ -2,6 +2,7 @@
 
 from .auto_wiring import (
     MissingAnnotationError,
+    TypeFallbackStrategy,
     UnresolvableDependencyError,
     injectable,
     is_injectable,
@@ -161,6 +162,7 @@ __all__ = [
     "ServiceNotFoundError",
     "SyncFactoryReturningAwaitableError",
     "TracerFn",
+    "TypeFallbackStrategy",
     "UnorderedPolicy",
     "UnregisteredDependencyError",
     "UnregisteredTypeError",
