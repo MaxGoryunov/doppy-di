@@ -230,38 +230,46 @@ class TypeFallbackStrategy:
         self.allow_builtins = allow_builtins
         self.max_depth = max_depth
 
-    def should_attempt(self, target: Any) -> Optional[str]:
-        """Return None when allowed, else human-readable rejection reason."""
+    def _reject_alias(self, target: Any, origin: Any) -> Optional[str]:
+        """Reject generic alias, unwrap Annotated, recurse origin."""
         import typing
 
-        if target is None or target is Any:
-            return "Any or missing annotation cannot be resolved implicitly"
-        origin = get_origin(target)
-        if origin is not None:
-            args = get_args(target)
-            if origin is typing.Union or "Union" in str(origin):
-                return f"union {target!r} needs an explicit rule"
-            if hasattr(target, "__metadata__"):
-                inner = args[0] if args else None
-                if inner is not None:
-                    return self.should_attempt(inner)
+        args = get_args(target)
+        if origin is typing.Union or "Union" in str(origin):
+            return f"union {target!r} needs an explicit rule"
+        if hasattr(target, "__metadata__"):
+            inner = args[0] if args else None
+            if inner is None:
                 return f"empty annotation {target!r} needs an explicit rule"
-            if isinstance(origin, type):
-                return self.should_attempt(origin)
-            return f"generic {target!r} needs an explicit rule"
-        if not isinstance(target, type):
-            return f"{target!r} is not a resolvable type"
+            return self.should_attempt(inner)
+        if isinstance(origin, type):
+            return self.should_attempt(origin)
+        return f"generic {target!r} needs an explicit rule"
+
+    def _reject_type(self, target: type) -> Optional[str]:
+        """Reject builtin, protocol, abstract, non-injectable."""
         if not self.allow_builtins and target in _BUILTIN_TYPES:
             return f"builtin {target!r} is blocked by default"
         if getattr(target, "_is_protocol", False):
-            if not self.allow_protocols:
-                return f"protocol {target!r} needs allow_protocols=True"
-            return None
+            if self.allow_protocols:
+                return None
+            return f"protocol {target!r} needs allow_protocols=True"
         if inspect.isabstract(target) and not self.allow_protocols:
             return f"abstract {target!r} is ambiguous without an explicit rule"
         if not self.allow_concrete_classes and not is_injectable(target):
             return f"{target!r} is not marked @injectable (STRICT mode)"
         return None
+
+    def should_attempt(self, target: Any) -> Optional[str]:
+        """Return None when allowed, else human-readable rejection reason."""
+        if target is None or target is Any:
+            return "Any or missing annotation cannot be resolved implicitly"
+        origin = get_origin(target)
+        if origin is not None:
+            return self._reject_alias(target, origin)
+        if not isinstance(target, type):
+            return f"{target!r} is not a resolvable type"
+        return self._reject_type(target)
 
     def check_depth(self, depth: int) -> Optional[str]:
         """Return None when depth ok, else rejection reason."""
