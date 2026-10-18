@@ -119,7 +119,7 @@ def test_inject_missing_annotation_raises(container: Any) -> None:
     def handle(service) -> Any:  # type: ignore[no-untyped-def]
         return service
 
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         handle()
 
 
@@ -140,7 +140,7 @@ def test_inject_none_annotation_raises(container: Any) -> None:
     def handle(service: None) -> None:
         return service
 
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         handle()
 
 
@@ -181,7 +181,7 @@ def test_inject_unresolvable_dependency_raises(container: Any) -> None:
     def handle(service: Missing) -> Missing:
         return service
 
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         handle()
 
 
@@ -190,7 +190,7 @@ def test_inject_depends_no_annotation_raises(container: Any) -> None:
     def handle(service: Any = Depends()) -> Any:  # noqa: B008
         return service
 
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         handle()
 
 
@@ -199,7 +199,7 @@ def test_inject_depends_unresolvable_raises(container: Any) -> None:
     def handle(service: Missing = Depends()) -> Missing:  # noqa: B008
         return service
 
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         handle()
 
 
@@ -208,7 +208,7 @@ def test_inject_depends_type_unresolvable_raises(container: Any) -> None:
     def handle(service: Missing = Depends(Missing)) -> Missing:  # noqa: B008
         return service
 
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         handle()
 
 
@@ -218,7 +218,7 @@ def test_inject_async_missing_annotation_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         run(coro)
 
 
@@ -241,7 +241,7 @@ def test_inject_async_none_annotation_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         run(coro)
 
 
@@ -283,7 +283,7 @@ def test_inject_async_unresolvable_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         run(coro)
 
 
@@ -293,7 +293,7 @@ def test_inject_async_depends_no_annotation_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         run(coro)
 
 
@@ -303,7 +303,7 @@ def test_inject_async_depends_unresolvable_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         run(coro)
 
 
@@ -315,7 +315,7 @@ def test_inject_async_depends_type_unresolvable_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         run(coro)
 
 
@@ -422,7 +422,7 @@ def test_inject_scope_sync_unresolvable_raises(container: Any) -> None:
     def handle(service: Missing) -> Missing:
         return service
 
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         handle()
 
 
@@ -432,7 +432,7 @@ def test_inject_scope_async_unresolvable_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         run(coro)
 
 
@@ -442,7 +442,7 @@ def test_inject_scope_async_unannotated_raises(container: Any) -> None:
         return service
 
     coro = handle()
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         run(coro)
 
 
@@ -465,7 +465,7 @@ def test_inject_scope_async_depends_no_annotation_raises(
         return service
 
     coro = handle()
-    with pytest.raises(MissingAnnotationError):  # NOSONAR(S5778)
+    with pytest.raises(MissingAnnotationError):  # NOSONAR
         run(coro)
 
 
@@ -479,7 +479,7 @@ def test_inject_scope_async_depends_type_unresolvable_raises(
         return service
 
     coro = handle()
-    with pytest.raises(UnresolvableDependencyError):  # NOSONAR(S5778)
+    with pytest.raises(UnresolvableDependencyError):  # NOSONAR
         run(coro)
 
 

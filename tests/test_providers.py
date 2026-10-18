@@ -230,12 +230,12 @@ def test_unbound_provider_dependency_raises() -> None:
     unbound = Factory(UserRepository)
 
     factory = Factory(UserService, repo=unbound)
-    with pytest.raises(ValueError, match="not bound"):  # NOSONAR(S5778)
+    with pytest.raises(ValueError, match="not bound"):  # NOSONAR
         services.repo = factory
 
 
 def test_provider_base_to_rules_not_implemented() -> None:
-    with pytest.raises(NotImplementedError):  # NOSONAR(S5778)
+    with pytest.raises(NotImplementedError):  # NOSONAR
         Provider().to_rules("x")
 
 
@@ -302,5 +302,5 @@ def test_selector_unknown_key_raises() -> None:
         selector_fn=lambda ctx: "missing",
     )
 
-    with pytest.raises(ValueError, match="unknown label"):  # NOSONAR(S5778)
+    with pytest.raises(ValueError, match="unknown label"):  # NOSONAR
         services.get("pick")
