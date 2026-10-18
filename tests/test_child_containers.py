@@ -55,7 +55,7 @@ def test_child_rules_do_not_leak_into_parent() -> None:
     child = parent.create_child()
     child.config.ruleset.add("extra", Rule("extra", lambda: 1))
     assert child.get("extra") == 1
-    with pytest.raises(ServiceNotFoundError):  # NOSONAR(S5778)
+    with pytest.raises(ServiceNotFoundError):  # NOSONAR
         parent.get("extra")
 
 
@@ -143,7 +143,7 @@ def test_install_duplicate_fail_policy() -> None:
         def configure(self, binder: ModuleBinder) -> None:
             binder.value("dup", 2)
 
-    with pytest.raises(DuplicateRegistrationError):  # NOSONAR(S5778)
+    with pytest.raises(DuplicateRegistrationError):  # NOSONAR
         builder.install(Dup(), Dup2(), duplicate_policy=DuplicateKeyPolicy.FAIL)
 
 
@@ -171,7 +171,7 @@ def test_child_missing_dep_still_errors() -> None:
     parent = ContainerBuilder().build()
     child = parent.create_child()
     child.config.ruleset.add("svc", Rule("svc", lambda db: db, deps=("missing",)))
-    with pytest.raises(Exception, match="missing"):  # NOSONAR(S5778)
+    with pytest.raises(Exception, match="missing"):  # NOSONAR
         child.compile()
 
 
@@ -247,7 +247,7 @@ def test_child_singleton_cache_get_and_getitem() -> None:
     assert cache.get("local") == "l"
     assert cache["x"] == "px"
     assert cache["local"] == "l"
-    with pytest.raises(KeyError):  # NOSONAR(S5778)
+    with pytest.raises(KeyError):  # NOSONAR
         cache["missing"]
 
 
@@ -264,7 +264,7 @@ def test_container_install_duplicate_fail_on_plain_container() -> None:
             binder.value("dup", 2)
 
     child = container.create_child()
-    with pytest.raises(DuplicateRegistrationError):  # NOSONAR(S5778)
+    with pytest.raises(DuplicateRegistrationError):  # NOSONAR
         child.install(D1(), D2(), duplicate_policy=DuplicateKeyPolicy.FAIL)
 
 
