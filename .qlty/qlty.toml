@@ -133,7 +133,8 @@ set.ignored = true
 # these advisories. They come in only through the dev-only semantic-release
 # toolchain, are never shipped with the wheel, and can only be refreshed by
 # npm itself regenerating package-lock.json (`npm install`) - node/npm are not
-# part of this project's build. Revisit when the lock file is next regenerated.
+# part of this project's build. Revisit when the lock file is next regenerated
+# (no node/npm in this environment, regen not possible here).
 [[triage]]
 match.plugins = ["osv-scanner"]
 match.file_patterns = ["package-lock.json"]
@@ -143,7 +144,20 @@ match.rules = [
   "CVE-2026-48815",
   "CVE-2026-93687",
   "CVE-2026-93748",
+  "CVE-2026-106444",
+  "CVE-2026-106445",
+  "CVE-2026-106446",
 ]
+set.ignored = true
+
+# S3516 on `ensure_unwrapped` is a false positive: both branches return the
+# same `container` object by contract (identity check helper), the warn/raise
+# side effect is the actual behavior. Splitting return values would break the
+# public devkit API. Narrow silence, rule stays active elsewhere.
+[[triage]]
+match.plugins = ["radarlint-python"]
+match.file_patterns = ["src/doppy_di/devkit/rate_limit.py"]
+match.rules = ["python:S3516"]
 set.ignored = true
 
 
