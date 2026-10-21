@@ -125,7 +125,7 @@ def test_thread_safety() -> None:
         try:
             for _ in range(50):
                 wrapped.get("svc")  # type: ignore[no-untyped-call]
-        except BaseException as exc:  # pragma: no cover
+        except Exception as exc:
             errors.append(exc)
 
     threads = [threading.Thread(target=worker) for _ in range(4)]

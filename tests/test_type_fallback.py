@@ -44,6 +44,7 @@ class _NeedsInt:
 
 class _DB:
     def __init__(self) -> None:
+        # Fixture stub only; no behavior needed for fallback tests.
         pass
 
 
